@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="beam" x1="0" x2="1">
+      <stop offset="0" stop-color="#ff1a0a" stop-opacity="0"/>
+      <stop offset=".4" stop-color="#ff2a1a" stop-opacity=".85"/>
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".95"/>
+      <stop offset=".7" stop-color="#ff2a1a" stop-opacity=".75"/>
+      <stop offset="1" stop-color="#ff1a0a" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beamDim" x1="0" x2="1">
+      <stop offset="0" stop-color="#b00000" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#d40a00" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#b00000" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".42" r=".6">
+      <stop offset="0" stop-color="#2a0505" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#050505" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur" x="-20%" y="-50%" width="140%" height="200%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+  </defs>
+
+  <rect width="400" height="800" fill="#050505"/>
+  <rect width="400" height="800" fill="url(#glow)"/>
+
+  <!-- top-left sweep -->
+  <g fill="none" stroke-linecap="round">
+    <g filter="url(#blur)" opacity=".7">
+      <path d="M-60 170 Q 140 60 470 -40" stroke="url(#beam)" stroke-width="14"/>
+      <path d="M-60 250 Q 160 120 470 40" stroke="url(#beamDim)" stroke-width="18"/>
+    </g>
+    <path d="M-60 170 Q 140 60 470 -40" stroke="url(#beam)" stroke-width="2.2"/>
+    <path d="M-60 196 Q 150 84 470 -12" stroke="url(#beam)" stroke-width="1"/>
+    <path d="M-60 250 Q 160 120 470 40" stroke="url(#beamDim)" stroke-width="1.6"/>
+    <path d="M-60 120 Q 120 40 470 -80" stroke="url(#beamDim)" stroke-width="1"/>
+  </g>
+
+  <!-- bottom-right sweep -->
+  <g fill="none" stroke-linecap="round">
+    <g filter="url(#blur)" opacity=".7">
+      <path d="M-70 760 Q 200 640 480 560" stroke="url(#beam)" stroke-width="16"/>
+      <path d="M-70 700 Q 210 600 480 500" stroke="url(#beamDim)" stroke-width="18"/>
+    </g>
+    <path d="M-70 760 Q 200 640 480 560" stroke="url(#beam)" stroke-width="2.4"/>
+    <path d="M-70 786 Q 210 664 480 590" stroke="url(#beam)" stroke-width="1"/>
+    <path d="M-70 700 Q 210 600 480 500" stroke="url(#beamDim)" stroke-width="1.6"/>
+    <path d="M-70 830 Q 220 700 480 640" stroke="url(#beamDim)" stroke-width="1"/>
+  </g>
+</svg>
