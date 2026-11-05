@@ -226,14 +226,8 @@
       toast('Erro ao carregar clientes.');
       return;
     }
-    const dl = $('#clients-datalist');
-    dl.replaceChildren(...state.clients.map((c) => {
-      const o = el('option');
-      o.value = c.name;
-      if (c.cpf) o.label = fmtCpf(c.cpf);
-      return o;
-    }));
     renderClients();
+    if (!$('#client-options').hidden) renderCombo();
   }
 
   function renderClients() {
@@ -336,6 +330,7 @@
 
   saleForm.querySelectorAll('input[name="plan"]').forEach((r) => r.addEventListener('change', updateNotes));
   saleForm.addEventListener('reset', () => {
+    state.selectedClient = null;
     setTimeout(() => {
       saleForm.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid'));
       showError($('#sale-error'), '');
@@ -347,39 +342,169 @@
     e.target.closest('.pills')?.classList.remove('invalid');
   });
 
-  async function findOrCreateClient(name) {
-    const existing = state.clients.find((c) => c.name === name);
-    if (existing) return existing.id;
-    const { data, error } = await sb.from('clients').insert({ name }).select('id, name, cpf').single();
-    if (error) throw error;
-    loadClients();
-    return data.id;
+  // ── Client picker: lists every client, filters while typing, offers "Cadastrar" when nothing matches
+  const comboInput = $('#sale-client');
+  const comboList = $('#client-options');
+  const COMBO_MAX = 100;
+  let comboItems = [];   // [{ li, action }]
+  let comboActive = -1;
+  state.selectedClient = null;
+
+  const searchKey = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+
+  function matchClients(q) {
+    const words = searchKey(q).split(/\s+/).filter(Boolean);
+    const digits = q.replace(/\D/g, '');
+    if (!words.length) return state.clients;
+    return state.clients.filter((c) => {
+      const name = searchKey(c.name);
+      return words.every((w) => name.includes(w)) || (digits.length >= 3 && (c.cpf || '').includes(digits));
+    });
   }
+
+  function setComboActive(i) {
+    comboActive = i;
+    comboItems.forEach(({ li }, k) => li.setAttribute('aria-selected', String(k === i)));
+    const cur = comboItems[i]?.li;
+    if (cur) { comboInput.setAttribute('aria-activedescendant', cur.id); cur.scrollIntoView({ block: 'nearest' }); }
+    else comboInput.removeAttribute('aria-activedescendant');
+  }
+
+  function comboOption(id, className, children, action) {
+    const li = el('li', className);
+    li.id = id;
+    li.setAttribute('role', 'option');
+    li.append(...children);
+    li.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the input
+    li.addEventListener('click', action);
+    comboItems.push({ li, action });
+    return li;
+  }
+
+  function renderCombo() {
+    const q = comboInput.value;
+    const found = matchClients(q);
+    comboItems = [];
+    const nodes = found.slice(0, COMBO_MAX).map((c) => comboOption(`opt-${c.id}`, null, [
+      el('span', 'combo-name', c.name),
+      ...(c.cpf ? [el('span', 'combo-cpf', fmtCpf(c.cpf))] : []),
+    ], () => selectClient(c)));
+
+    if (found.length > COMBO_MAX) nodes.push(el('li', 'combo-hint', `+${found.length - COMBO_MAX} clientes… continue digitando`));
+    if (!found.length) {
+      nodes.push(q.trim()
+        ? comboOption('opt-create', 'combo-create', [el('span', 'combo-plus', '+'), el('span', null, `Cadastrar "${normName(q)}"`)], () => openClientModal(q))
+        : el('li', 'combo-hint', 'Nenhum cliente cadastrado. Digite um nome para cadastrar.'));
+    }
+    comboList.replaceChildren(...nodes);
+    setComboActive(q.trim() && comboItems.length ? 0 : -1);
+  }
+
+  function openCombo() {
+    renderCombo();
+    comboList.hidden = false;
+    comboInput.setAttribute('aria-expanded', 'true');
+  }
+  function closeCombo() {
+    comboList.hidden = true;
+    comboInput.setAttribute('aria-expanded', 'false');
+    setComboActive(-1);
+  }
+
+  function selectClient(c) {
+    state.selectedClient = c;
+    comboInput.value = c.name;
+    comboInput.classList.remove('invalid');
+    showError($('#sale-error'), '');
+    closeCombo();
+  }
+
+  comboInput.addEventListener('focus', openCombo);
+  comboInput.addEventListener('click', () => { if (comboList.hidden) openCombo(); });
+  comboInput.addEventListener('input', () => { state.selectedClient = null; openCombo(); });
+  comboInput.addEventListener('blur', closeCombo);
+  comboInput.addEventListener('keydown', (e) => {
+    if (comboList.hidden && e.key === 'ArrowDown') { openCombo(); e.preventDefault(); return; }
+    if (comboList.hidden) return;
+    if (e.key === 'ArrowDown') { setComboActive(Math.min(comboActive + 1, comboItems.length - 1)); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { setComboActive(Math.max(comboActive - 1, 0)); e.preventDefault(); }
+    else if (e.key === 'Enter' && comboActive >= 0) { comboItems[comboActive].action(); e.preventDefault(); }
+    else if (e.key === 'Escape') { closeCombo(); }
+  });
+
+  // ── "Novo cliente" modal
+  const clientModal = $('#client-modal');
+  const modalName = $('#modal-client-name');
+  const modalCpf = $('#modal-client-cpf');
+
+  function openClientModal(q) {
+    closeCombo();
+    modalName.value = normName(q || '');
+    modalCpf.value = '';
+    showError($('#modal-client-error'), '');
+    clientModal.showModal();
+    (modalName.value ? modalCpf : modalName).focus();
+  }
+
+  modalCpf.addEventListener('input', () => { modalCpf.value = fmtCpf(modalCpf.value); });
+  $('#modal-client-cancel').addEventListener('click', () => clientModal.close());
+  clientModal.addEventListener('click', (e) => { if (e.target === clientModal) clientModal.close(); }); // tap on backdrop
+
+  $('#client-modal-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errBox = $('#modal-client-error');
+    const name = normName(modalName.value);
+    const cpf = modalCpf.value.replace(/\D/g, '');
+    if (!name) return showError(errBox, 'Informe o nome.');
+    if (cpf && cpf.length !== 11) return showError(errBox, 'CPF deve ter 11 dígitos.');
+    const dup = cpf && state.clients.find((c) => c.cpf === cpf);
+    if (dup) return showError(errBox, `CPF já cadastrado para ${dup.name}.`);
+
+    const btn = e.submitter || $('#client-modal-form button[type="submit"]');
+    btn.disabled = true;
+    const { data, error } = await sb.from('clients').insert({ name, cpf: cpf || null }).select('id, name, cpf').single();
+    btn.disabled = false;
+    if (error) { console.error(error); return showError(errBox, 'Erro ao cadastrar. Verifique a internet.'); }
+
+    state.clients = [...state.clients, data].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    renderClients();
+    clientModal.close();
+    selectClient(data);
+    toast('Cliente cadastrado! 💪');
+  });
 
   saleForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const errBox = $('#sale-error');
-    const clientInput = $('#sale-client');
     const timeSelect = $('#sale-time');
-    const clientName = normName(clientInput.value);
+    const typedName = normName(comboInput.value);
     const cents = amountCents();
     const days = radioValue('days');
 
+    // The client must be one from the list (picked, or typed exactly as registered)
+    let client = state.selectedClient;
+    if (!client || client.name !== typedName) client = state.clients.find((c) => c.name === typedName) || null;
+
     const missing = [];
-    if (!clientName) { missing.push('cliente'); clientInput.classList.add('invalid'); }
+    if (!typedName) { missing.push('cliente'); comboInput.classList.add('invalid'); }
     if (cents <= 0) { missing.push('valor'); amountInput.classList.add('invalid'); }
     if (!days) { missing.push('dias/semana'); saleForm.querySelector('input[name="days"]').closest('.pills').classList.add('invalid'); }
     if (!timeSelect.value) { missing.push('horário'); timeSelect.classList.add('invalid'); }
     if (missing.length) return showError(errBox, `Preencha: ${missing.join(', ')}.`);
+    if (!client) {
+      comboInput.classList.add('invalid');
+      comboInput.focus();
+      return showError(errBox, 'Cliente não cadastrado. Escolha da lista ou toque em "Cadastrar".');
+    }
     showError(errBox, '');
 
     const btn = saleForm.querySelector('button[type="submit"]');
     btn.disabled = true;
     try {
-      const clientId = await findOrCreateClient(clientName);
+      const clientName = client.name;
       const { start, end } = planDates();
       const row = {
-        client_id: clientId,
+        client_id: client.id,
         client_name: clientName,
         amount: cents / 100,
         payment_method: radioValue('payment'),
@@ -505,7 +630,7 @@
 
   // ───────────────────────── Export (CSV / PDF) ─────────────────────────
   const GYM = {
-    phone: '3292-6830',
+    phone: '(35) 3292-6830',
     address: 'Av. Henrique Munhoz Garcia, 327 · Jd. Boa Esperança',
     logo: 'img/emblem.svg', // swap for the real logo (PNG/SVG) when it arrives
   };

@@ -62,7 +62,7 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
 - **Plan dates**: start = day of the sale, end = same day 1/6/12 months later (31/01 + 1 month → 28/02).
 - **Observação** is pre-filled with the plan period and can be edited.
 - **Defaults**: Pix, Mensal, 3 dias/semana, 07:00.
-- **Cliente**: pick from the list or type a new name; unknown names are saved as new clients automatically. Names are stored in uppercase.
+- **Cliente**: tapping the field lists every client; typing filters by name (any order, accents ignored) or CPF. If nobody matches, "Cadastrar" opens a form with Nome and CPF. A sale can only be saved for a registered client. Names are stored in uppercase.
 - **Histórico** filters: Hoje, Ontem, Semana passada (previous Monday–Sunday), Mês atual, Mês passado, Últimos 6 meses, Último ano, or a custom date range. Long-press a filter to see which dates it covers.
 - All dates are shown as dd/MM/yyyy.
 - Free Supabase projects pause after **7 days without use**. If that happens (e.g. holidays), log into Supabase and click **Restore**; no data is lost.

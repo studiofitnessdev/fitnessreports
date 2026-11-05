@@ -68,7 +68,7 @@
     </form>
 
     <footer class="gym-info">
-      <div><svg class="ico"><use href="#i-whats"/></svg> 3292-6830</div>
+      <div><svg class="ico"><use href="#i-whats"/></svg> (35) 3292-6830</div>
       <div><svg class="ico"><use href="#i-pin"/></svg> Av. Henrique Munhoz Garcia, 327 · Jd. Boa Esperança</div>
     </footer>
   </section>
@@ -95,12 +95,15 @@
 
           <div class="panel">
             <div class="panel-head"><span class="step">01</span> Cliente</div>
-            <label class="field field-icon">
-              <span class="sr-only">Cliente</span>
-              <svg class="ico field-ico"><use href="#i-user"/></svg>
-              <input type="text" id="sale-client" list="clients-datalist" placeholder="Nome do cliente" required>
-              <datalist id="clients-datalist"></datalist>
-            </label>
+            <div class="field combo">
+              <label for="sale-client" class="sr-only">Cliente</label>
+              <div class="field-icon combo-box">
+                <svg class="ico field-ico"><use href="#i-search"/></svg>
+                <input type="text" id="sale-client" placeholder="Buscar por nome ou CPF" autocomplete="off"
+                       role="combobox" aria-expanded="false" aria-controls="client-options" aria-autocomplete="list" required>
+              </div>
+              <ul class="combo-list" id="client-options" role="listbox" hidden></ul>
+            </div>
           </div>
 
           <div class="panel">
@@ -271,6 +274,26 @@
       <button type="button" class="btn btn-hero" id="celebrate-ok">Bora! <svg class="ico chev" aria-hidden="true"><use href="#i-chevs"/></svg></button>
     </div>
   </div>
+
+  <!-- Cadastro rápido de cliente (aberto pela busca da venda) -->
+  <dialog class="modal" id="client-modal" aria-labelledby="client-modal-title">
+    <form id="client-modal-form" class="panel" novalidate>
+      <div class="panel-head" id="client-modal-title"><span class="step"><svg class="ico"><use href="#i-user"/></svg></span> Novo cliente</div>
+      <label class="field">
+        <span>Nome</span>
+        <input type="text" id="modal-client-name" required>
+      </label>
+      <label class="field">
+        <span>CPF</span>
+        <input type="text" id="modal-client-cpf" inputmode="numeric" maxlength="14" placeholder="000.000.000-00">
+      </label>
+      <p class="error" id="modal-client-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="modal-client-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-hero">Cadastrar</button>
+      </div>
+    </form>
+  </dialog>
 
   <div class="toast" id="toast" hidden></div>
 
