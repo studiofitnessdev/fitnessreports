@@ -254,9 +254,9 @@ select option { background: var(--surface-2); color: var(--text); }
 
 /* Big chrome money input */
 .input-money {
-  font-family: var(--font-display) !important; font-style: italic; font-weight: 900 !important;
-  font-size: 2.3rem !important; letter-spacing: .01em;
-  padding: 8px 14px !important;
+  font-family: var(--font-body) !important; font-weight: 700 !important;
+  font-size: 2rem !important; font-variant-numeric: tabular-nums;
+  padding: 10px 14px !important;
   color: #fff;
   text-shadow: 0 0 18px rgba(255, 40, 20, .35);
 }
@@ -366,10 +366,13 @@ select option { background: var(--surface-2); color: var(--text); }
 .chip.active .ico { color: #fff; }
 
 .hint { margin: 2px 0 12px; font-size: .8rem; color: var(--muted); }
+.history-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 12px; }
+.export { display: flex; gap: 8px; flex: 0 0 auto; padding-right: 4px; }
+.btn-sm { display: inline-flex; align-items: center; gap: 6px; font-size: 1rem; padding: 9px 14px; }
 .status {
-  margin: 4px 0 10px;
-  font-family: var(--font-display); font-weight: 700; font-style: italic;
-  letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+  margin: 0;
+  font-weight: 600; font-size: .95rem; font-variant-numeric: tabular-nums;
+  color: var(--muted);
 }
 
 .custom-range { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
@@ -403,20 +406,19 @@ select option { background: var(--surface-2); color: var(--text); }
 }
 @keyframes lift { 0%, 100% { transform: translateY(4px) rotate(-6deg); } 50% { transform: translateY(-6px) rotate(6deg); } }
 
-.list-sales li::before {
+.list-sales li:not(.muted)::before {
   content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 3px; border-radius: 3px;
   background: var(--red); box-shadow: 0 0 10px var(--red-glow);
 }
 .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .row-title {
-  font-family: var(--font-display); font-weight: 700; font-style: italic;
-  font-size: .95rem; letter-spacing: .04em; color: var(--muted);
+  font-weight: 600; font-size: .9rem; font-variant-numeric: tabular-nums; color: var(--muted);
 }
 .row-name { font-weight: 700; text-transform: uppercase; margin-top: 2px; }
 .row-amount {
   white-space: nowrap;
-  font-family: var(--font-display); font-style: italic; font-weight: 900; font-size: 1.35rem;
-  background: var(--chrome); -webkit-background-clip: text; background-clip: text; color: transparent;
+  font-weight: 700; font-size: 1.15rem; font-variant-numeric: tabular-nums;
+  color: #fff;
 }
 .row-meta { font-size: .85rem; color: var(--muted); margin-top: 6px; }
 
@@ -436,12 +438,11 @@ select option { background: var(--surface-2); color: var(--text); }
   font-family: var(--font-display); font-style: italic; font-weight: 800;
   text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
 }
-.total-label .ico { color: var(--red-bright); width: 22px; height: 22px; animation: flicker 1.4s ease-in-out infinite; }
-@keyframes flicker { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.12); opacity: .85; } }
+.total-label .ico { color: var(--red-bright); width: 22px; height: 22px; }
 .total-value {
-  font-family: var(--font-display); font-style: italic; font-weight: 900; font-size: 2rem; white-space: nowrap;
-  background: var(--chrome); -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, .15));
+  font-weight: 700; font-size: 1.6rem; white-space: nowrap; font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 0 14px rgba(255, 40, 20, .45);
 }
 
 /* ───────── Clients ───────── */

@@ -31,6 +31,9 @@
       <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></symbol>
       <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/><path d="M14 7.5l3 3"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20.5h16"/></symbol>
+      <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></symbol>
+      <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.8"/><path d="M6 9.5v5M18 9.5v5"/></symbol>
       <symbol id="i-chevs" viewBox="0 0 24 24"><path d="M5 6l6 6-6 6M13 6l6 6-6 6"/></symbol>
       <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.7-.3 2-1.3 3.3-2.6 3.8.4-3.3-.8-6.3-3.8-8.3.3 3.6-1.6 5.6-3.3 7.6C4.5 11.1 5 12.5 5 15.2 5 19.2 8 22 12 22z"/></symbol>
     </defs>
@@ -112,6 +115,7 @@
                 <label><input type="radio" name="payment" value="pix" checked><span><svg class="ico"><use href="#i-pix"/></svg>Pix</span></label>
                 <label><input type="radio" name="payment" value="credito"><span><svg class="ico"><use href="#i-card"/></svg>Crédito</span></label>
                 <label><input type="radio" name="payment" value="debito"><span><svg class="ico"><use href="#i-card"/></svg>Débito</span></label>
+                <label><input type="radio" name="payment" value="dinheiro"><span><svg class="ico"><use href="#i-cash"/></svg>Dinheiro</span></label>
               </div>
             </fieldset>
           </div>
@@ -199,7 +203,13 @@
           <button type="button" class="btn btn-hero" id="range-apply">Filtrar</button>
         </div>
 
-        <p class="status" id="history-status"></p>
+        <div class="history-bar">
+          <p class="status" id="history-status"></p>
+          <div class="export" id="export-bar" hidden>
+            <button type="button" class="btn btn-ghost btn-sm" id="export-csv"><svg class="ico"><use href="#i-sheet"/></svg>CSV</button>
+            <button type="button" class="btn btn-hero btn-sm" id="export-pdf"><svg class="ico"><use href="#i-download"/></svg>PDF</button>
+          </div>
+        </div>
         <ul class="list list-sales" id="history-list"></ul>
       </section>
 

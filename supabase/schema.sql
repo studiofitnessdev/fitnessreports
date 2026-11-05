@@ -54,7 +54,7 @@ create table public.sales (
   client_id      bigint references public.clients on delete set null,
   client_name    text not null,
   amount         numeric(10, 2) not null check (amount >= 0),
-  payment_method text not null check (payment_method in ('pix', 'credito', 'debito')),
+  payment_method text not null check (payment_method in ('pix', 'credito', 'debito', 'dinheiro')),
   class_time     text not null check (class_time ~ '^\d{2}:\d{2}$'),
   plan           text not null check (plan in ('mensal', 'semestral', 'anual')),
   days_per_week  text not null check (days_per_week in ('1', '2', '3', '4+')),
