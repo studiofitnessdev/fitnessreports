@@ -125,3 +125,37 @@ $$;
 
 revoke execute on function public.db_usage() from public, anon;
 grant execute on function public.db_usage() to authenticated;
+
+-- ─────────────────────────────────────────────
+-- Anderson changes the Professor password (Configurações). Owner only; can only touch the teacher login(s).
+-- ─────────────────────────────────────────────
+create extension if not exists pgcrypto with schema extensions;
+
+create or replace function public.set_teacher_password(new_password text)
+returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare
+  changed int;
+begin
+  if not public.is_owner() then
+    raise exception 'only the owner can change passwords' using errcode = '42501';
+  end if;
+  if new_password is null or length(new_password) < 6 then
+    raise exception 'password must have at least 6 characters' using errcode = '22023';
+  end if;
+
+  update auth.users
+     set encrypted_password = extensions.crypt(new_password, extensions.gen_salt('bf')),
+         updated_at = now()
+   where id in (select id from public.profiles where role = 'teacher');
+  get diagnostics changed = row_count;
+  if changed = 0 then
+    raise exception 'teacher login not found' using errcode = 'P0002';
+  end if;
+
+  delete from auth.sessions where user_id in (select id from public.profiles where role = 'teacher');
+end;
+$$;
+
+revoke execute on function public.set_teacher_password(text) from public, anon;
+grant execute on function public.set_teacher_password(text) to authenticated;

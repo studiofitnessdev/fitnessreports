@@ -21,7 +21,7 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 2. Paste all of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 
 ### 2b. Updates (only if you ran `schema.sql` before these files existed)
-Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Config).
+Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password).
 
 ### 3. Block public sign-ups (important)
 The site's key is public, so nobody else must be able to create an account.
@@ -67,7 +67,8 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
 - **Defaults**: Pix, Mensal, 3 dias/semana, 07:00.
 - **Cliente**: tapping the field lists every client; typing filters by name (any order, accents ignored) or CPF. "Cadastrar" is always the last option and opens a form with Nome and CPF, prefilled with what was typed (a name, or a CPF when only digits were typed). Both search fields have an × button to clear them. A sale can only be saved for a registered client. Names are stored in uppercase.
 - **Plan status** in Clientes (both logins): each client shows **Ativo**, **Vence em N dias** (7 days or less), **Vence hoje**, **Vencido** or **Sem plano**, based on the sale whose plan reaches the furthest date (renewing early never shortens it). A plan is active up to and including its end date. The teacher gets only these dates through the `client_subscriptions()` database function, never values.
-- **Config** (Anderson only): database size against the free plan's 500 MB, space used by sales and clients, and a growth forecast from the last 90 days. It also lists the other free-plan limits. Bandwidth (5 GB/month) can't be measured from the app because the Supabase usage API needs a secret key; check it in the Supabase dashboard (linked on the screen).
+- **Senhas** in Configurações (Anderson only): change Anderson's or the Professor's password. Every change asks for confirmation with Anderson's current password. Changing the Professor password signs that login out everywhere: open screens keep working for up to about 1 hour, then must log in with the new password. The database function can only change the teacher login, never any other account.
+- **Configurações** (Anderson only): database size against the free plan's 500 MB, space used by sales and clients, and a growth forecast from the last 90 days. It also lists the other free-plan limits. Bandwidth (5 GB/month) can't be measured from the app because the Supabase usage API needs a secret key; check it in the Supabase dashboard (linked on the screen).
 - **Histórico** filters: Hoje, Ontem, Semana passada (previous Monday–Sunday), Mês atual, Mês passado, Últimos 6 meses, Último ano, or a custom date range. Long-press a filter to see which dates it covers.
 - All dates are shown as dd/MM/yyyy.
 - Free Supabase projects pause after **7 days without use**. If that happens (e.g. holidays), log into Supabase and click **Restore**; no data is lost.

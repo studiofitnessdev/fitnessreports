@@ -242,7 +242,11 @@
     $('#view-title').textContent = TITLES[name];
     $('#totalbar').hidden = name !== 'history';
     if (name === 'history') { loadHistory(); whenIdle(() => loadPdfLibs().catch(() => {})); }
-    if (name === 'settings') loadUsage();
+    if (name === 'settings') {
+      loadUsage();
+      $$('.pw-form').forEach((f) => { f.reset(); f.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid')); });
+      $$('.pw-form .error').forEach((n) => showError(n, ''));
+    }
     if (name === 'clients') {
       if (state.clientsDirty || state.clientsDay !== toISODate(new Date())) renderClients();
       if (Date.now() - state.subsAt > 60_000) loadSubscriptions(); // pick up sales made on other phones
@@ -447,6 +451,86 @@
   }
 
   $('#usage-refresh').addEventListener('click', loadUsage);
+
+  // ───────────────────────── Configurações: passwords (Anderson only) ─────────────────────────
+  // Anderson's own password goes through Supabase Auth; the Professor's through set_teacher_password()
+  // (supabase/005_passwords.sql). Either change needs a confirmation with Anderson's current password.
+  const PW_MIN = 6;
+  $$('[data-label]').forEach((n) => { n.textContent = CFG.users[n.dataset.label].label; });
+  const pwModal = $('#pw-modal');
+  let pwPending = null; // { target, password, form }
+
+  $$('.pw-form').forEach((form) => form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const target = form.dataset.target;
+    const pass = $(`#pw-${target}-new`);
+    const repeat = $(`#pw-${target}-repeat`);
+    const errBox = $(`#pw-${target}-error`);
+    if (pass.value.length < PW_MIN) { pass.classList.add('invalid'); return showError(errBox, `A senha precisa ter pelo menos ${PW_MIN} caracteres.`); }
+    if (pass.value !== repeat.value) { repeat.classList.add('invalid'); return showError(errBox, 'As duas senhas não são iguais.'); }
+    showError(errBox, '');
+
+    pwPending = { target, password: pass.value, form };
+    const owner = CFG.users.owner.label;
+    const label = CFG.users[target].label;
+    $('#pw-modal-heading').textContent = `Trocar senha de ${label}?`;
+    const text = $('#pw-modal-text');
+    text.replaceChildren();
+    if (target === 'owner') {
+      text.append('A senha de ', el('strong', null, owner), ' vai mudar. Use a nova senha no próximo login.');
+    } else {
+      text.append('A senha de ', el('strong', null, label), ' vai mudar. Quem estiver conectado como ', el('strong', null, label),
+        ' vai precisar entrar de novo com a nova senha (em até 1 hora).');
+    }
+    $('#pw-modal-current-label').textContent = `Para confirmar, digite a senha atual de ${owner}`;
+    $('#pw-modal-current').value = '';
+    showError($('#pw-modal-error'), '');
+    pwModal.showModal();
+    $('#pw-modal-current').focus();
+  }));
+
+  $$('.pw-form input').forEach((i) => i.addEventListener('input', () => i.classList.remove('invalid')));
+  const closePwModal = () => { pwModal.close(); pwPending = null; };
+  $('#pw-modal-cancel').addEventListener('click', closePwModal);
+  pwModal.addEventListener('click', (e) => { if (e.target === pwModal) closePwModal(); }); // tap on backdrop
+  pwModal.addEventListener('close', () => { pwPending = null; $('#pw-modal-current').value = ''; });
+
+  $('#pw-modal-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!pwPending) return;
+    const { target, password, form } = pwPending;
+    const errBox = $('#pw-modal-error');
+    const current = $('#pw-modal-current').value;
+    if (!current) return showError(errBox, 'Digite a senha atual.');
+    const btn = $('#pw-modal-ok');
+    btn.disabled = true;
+    try {
+      // Check the current password (also refreshes the login, which Supabase may require to change a password).
+      const { data: { user } } = await sb.auth.getUser();
+      const check = await sb.auth.signInWithPassword({ email: user?.email || CFG.users.owner.email, password: current });
+      if (check.error) return showError(errBox, 'Senha atual incorreta.');
+
+      const { error } = target === 'owner'
+        ? await sb.auth.updateUser({ password })
+        : await sb.rpc('set_teacher_password', { new_password: password });
+      if (error) {
+        console.error(error);
+        const msg = error.code === 'same_password' ? 'A nova senha é igual à atual.'
+          : error.code === 'weak_password' ? `Senha fraca: use pelo menos ${PW_MIN} caracteres.`
+          : error.code === 'PGRST202' ? 'Falta configurar: rode supabase/005_passwords.sql no Supabase.'
+          : 'Não foi possível trocar a senha. Tente de novo.';
+        return showError(errBox, msg);
+      }
+      form.reset();
+      closePwModal();
+      toast(`Senha de ${CFG.users[target].label} alterada.`);
+    } catch (err) {
+      console.error(err);
+      showError(errBox, 'Sem conexão. Tente de novo.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // ───────────────────────── Sale form ─────────────────────────
   const saleForm = $('#sale-form');

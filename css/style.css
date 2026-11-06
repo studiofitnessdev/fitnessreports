@@ -615,3 +615,14 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .usage-error { margin: 0; color: #ffb020; line-height: 1.45; }
 .usage-link { margin-top: 12px; text-decoration: none; color: inherit; }
 .usage-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: .85rem; }
+
+/* ───────── Configurações: passwords ───────── */
+.pw-form + .pw-form { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.pw-title {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+  font-family: var(--font-display); font-style: italic; font-weight: 800; font-size: 1.1rem; text-transform: uppercase; letter-spacing: .03em;
+}
+.pw-title .ico { color: var(--red-bright); }
+.pw-form .error { margin: 0 0 12px; }
+.pw-modal-text { margin: 0 0 16px; line-height: 1.45; color: var(--muted); }
+.pw-modal-text strong { color: var(--text); }

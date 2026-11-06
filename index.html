@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=d3321290">
+  <link rel="stylesheet" href="css/style.css?v=e7418ae4">
 </head>
 <body>
 
@@ -42,6 +42,7 @@
       <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
       <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14.5v2.5"/></symbol>
       <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.7-.3 2-1.3 3.3-2.6 3.8.4-3.3-.8-6.3-3.8-8.3.3 3.6-1.6 5.6-3.3 7.6C4.5 11.1 5 12.5 5 15.2 5 19.2 8 22 12 22z"/></symbol>
     </defs>
   </svg>
@@ -260,6 +261,38 @@
       <!-- Configurações (somente Anderson) -->
       <section id="view-settings" class="view" hidden>
         <div class="panel">
+          <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-lock"/></svg></span> Senhas</div>
+
+          <form class="pw-form" id="pw-owner-form" data-target="owner" novalidate>
+            <div class="pw-title"><svg class="ico"><use href="#i-user"/></svg> <span data-label="owner"></span></div>
+            <label class="field">
+              <span>Nova senha</span>
+              <input type="password" id="pw-owner-new" autocomplete="new-password" minlength="6">
+            </label>
+            <label class="field">
+              <span>Repetir nova senha</span>
+              <input type="password" id="pw-owner-repeat" autocomplete="new-password" minlength="6">
+            </label>
+            <p class="error" id="pw-owner-error" hidden></p>
+            <button type="submit" class="btn btn-ghost btn-block">Trocar senha</button>
+          </form>
+
+          <form class="pw-form" id="pw-teacher-form" data-target="teacher" novalidate>
+            <div class="pw-title"><svg class="ico"><use href="#i-users"/></svg> <span data-label="teacher"></span></div>
+            <label class="field">
+              <span>Nova senha</span>
+              <input type="password" id="pw-teacher-new" autocomplete="new-password" minlength="6">
+            </label>
+            <label class="field">
+              <span>Repetir nova senha</span>
+              <input type="password" id="pw-teacher-repeat" autocomplete="new-password" minlength="6">
+            </label>
+            <p class="error" id="pw-teacher-error" hidden></p>
+            <button type="submit" class="btn btn-ghost btn-block">Trocar senha</button>
+          </form>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-db"/></svg></span> Banco de dados</div>
           <p class="usage-error" id="usage-error" hidden></p>
           <div id="usage-body">
@@ -296,7 +329,7 @@
       <button type="button" data-view="sale" class="active"><svg class="ico"><use href="#i-sale"/></svg><span>Venda</span></button>
       <button type="button" data-view="history" data-owner-only><svg class="ico"><use href="#i-chart"/></svg><span>Histórico</span></button>
       <button type="button" data-view="clients"><svg class="ico"><use href="#i-users"/></svg><span>Clientes</span></button>
-      <button type="button" data-view="settings" data-owner-only><svg class="ico"><use href="#i-gear"/></svg><span>Config</span></button>
+      <button type="button" data-view="settings" data-owner-only><svg class="ico"><use href="#i-gear"/></svg><span>Configurações</span></button>
       <button type="button" id="logout"><svg class="ico"><use href="#i-power"/></svg><span>Sair</span></button>
     </nav>
   </div>
@@ -333,10 +366,27 @@
     </form>
   </dialog>
 
+  <!-- Confirmação antes de trocar uma senha -->
+  <dialog class="modal" id="pw-modal" aria-labelledby="pw-modal-title">
+    <form id="pw-modal-form" class="panel" novalidate>
+      <div class="panel-head" id="pw-modal-title"><span class="step"><svg class="ico"><use href="#i-lock"/></svg></span> <span id="pw-modal-heading">Trocar senha?</span></div>
+      <p class="pw-modal-text" id="pw-modal-text"></p>
+      <label class="field">
+        <span id="pw-modal-current-label">Sua senha atual</span>
+        <input type="password" id="pw-modal-current" autocomplete="current-password">
+      </label>
+      <p class="error" id="pw-modal-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="pw-modal-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-hero" id="pw-modal-ok">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" hidden></div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=1b6a7616"></script>
+  <script defer src="js/app.js?v=4a67df78"></script>
 </body>
 </html>
