@@ -456,8 +456,14 @@
   comboInput.addEventListener('focus', openCombo);
   comboInput.addEventListener('click', () => { if (comboList.hidden) openCombo(); });
   comboInput.addEventListener('input', () => { state.selectedClient = null; openCombo(); });
-  comboInput.addEventListener('blur', closeCombo);
+  // Don't close on blur: on touch screens the input loses focus *before* the tap's click fires,
+  // so closing there collapses the list and the tap lands on whatever was underneath.
+  // Close instead when the user touches or focuses something outside the picker.
+  const inCombo = (t) => t === comboInput || comboList.contains(t);
+  document.addEventListener('pointerdown', (e) => { if (!comboList.hidden && !inCombo(e.target)) closeCombo(); }, true);
+  document.addEventListener('focusin', (e) => { if (!comboList.hidden && !inCombo(e.target)) closeCombo(); });
   comboInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') { closeCombo(); return; }
     if (comboList.hidden && e.key === 'ArrowDown') { openCombo(); e.preventDefault(); return; }
     if (comboList.hidden) return;
     if (e.key === 'ArrowDown') { setComboActive(Math.min(comboActive + 1, comboItems.length - 1)); e.preventDefault(); }
