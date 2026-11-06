@@ -236,6 +236,20 @@ select option { background: var(--surface-2); color: var(--text); }
   width: 20px; height: 20px; color: var(--red-bright); pointer-events: none;
 }
 .field-icon input, .field-icon select { padding-left: 44px; }
+.field-icon:has(.clear-btn) input { padding-right: 48px; }
+input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+/* Clear (×) button inside search fields */
+.clear-btn {
+  position: absolute; right: 7px; bottom: 7px;
+  display: grid; place-items: center;
+  width: 38px; height: 38px; padding: 0;
+  color: var(--text); background: rgba(255, 255, 255, .08);
+  border: 0; border-radius: 50%;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.clear-btn[hidden] { display: none; }
+.clear-btn .ico { width: 18px; height: 18px; stroke-width: 2.6; }
+.clear-btn:active { background: rgba(255, 45, 31, .35); }
 
 /* Big chrome money input */
 .input-money {

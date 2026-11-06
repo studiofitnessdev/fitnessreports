@@ -333,7 +333,16 @@
   }
 
   let clientsSearchFrame = 0; // at most one re-render per frame while typing
-  $('#clients-search').addEventListener('input', () => {
+  const clientsSearch = $('#clients-search');
+  const clientsSearchClear = $('#clients-search-clear');
+  clientsSearchClear.addEventListener('click', () => {
+    clientsSearch.value = '';
+    clientsSearchClear.hidden = true;
+    renderClients();
+    clientsSearch.focus();
+  });
+  clientsSearch.addEventListener('input', () => {
+    clientsSearchClear.hidden = !clientsSearch.value;
     cancelAnimationFrame(clientsSearchFrame);
     clientsSearchFrame = requestAnimationFrame(renderClients);
   });
@@ -486,6 +495,7 @@
   saleForm.querySelectorAll('input[name="plan"]').forEach((r) => r.addEventListener('change', updateNotes));
   saleForm.addEventListener('reset', () => {
     state.selectedClient = null;
+    $('#sale-client-clear').hidden = true;
     setTimeout(() => {
       saleForm.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid'));
       showError($('#sale-error'), '');
@@ -546,11 +556,12 @@
     ], () => selectClient(c)));
 
     if (found.length > COMBO_MAX) nodes.push(el('li', 'combo-hint', `+${found.length - COMBO_MAX} clientes… continue digitando`));
-    if (!found.length) {
-      nodes.push(q.trim()
-        ? comboOption('opt-create', 'combo-create', [el('span', 'combo-plus', '+'), el('span', null, `Cadastrar "${normName(q)}"`)], () => openClientModal(q))
-        : el('li', 'combo-hint', 'Nenhum cliente cadastrado. Digite um nome para cadastrar.'));
-    }
+    // "Cadastrar" is always the last option.
+    const typed = /\p{L}/u.test(q) ? normName(q) : ''; // digits only = a CPF search, not a name
+    nodes.push(comboOption('opt-create', 'combo-create', [
+      el('span', 'combo-plus', '+'),
+      el('span', null, typed ? `Cadastrar "${typed}"` : 'Cadastrar novo cliente'),
+    ], () => openClientModal(q)));
     comboList.replaceChildren(...nodes);
     setComboActive(q.trim() && comboItems.length ? 0 : -1);
   }
@@ -569,6 +580,7 @@
   function selectClient(c) {
     state.selectedClient = c;
     comboInput.value = c.name;
+    syncComboClear();
     comboInput.classList.remove('invalid');
     showError($('#sale-error'), '');
     closeCombo();
@@ -576,11 +588,21 @@
 
   comboInput.addEventListener('focus', openCombo);
   comboInput.addEventListener('click', () => { if (comboList.hidden) openCombo(); });
-  comboInput.addEventListener('input', () => { state.selectedClient = null; openCombo(); });
+  comboInput.addEventListener('input', () => { state.selectedClient = null; syncComboClear(); openCombo(); });
   // Don't close on blur: on touch screens the input loses focus *before* the tap's click fires,
   // so closing there collapses the list and the tap lands on whatever was underneath.
   // Close instead when the user touches or focuses something outside the picker.
-  const inCombo = (t) => t === comboInput || comboList.contains(t);
+  const comboClear = $('#sale-client-clear');
+  const syncComboClear = () => { comboClear.hidden = !comboInput.value; };
+  const inCombo = (t) => t === comboInput || comboList.contains(t) || comboClear.contains(t);
+  comboClear.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the keyboard open
+  comboClear.addEventListener('click', () => {
+    comboInput.value = '';
+    state.selectedClient = null;
+    syncComboClear();
+    comboInput.focus();
+    openCombo();
+  });
   document.addEventListener('pointerdown', (e) => { if (!comboList.hidden && !inCombo(e.target)) closeCombo(); }, true);
   document.addEventListener('focusin', (e) => { if (!comboList.hidden && !inCombo(e.target)) closeCombo(); });
   comboInput.addEventListener('keydown', (e) => {
@@ -600,8 +622,10 @@
 
   function openClientModal(q) {
     closeCombo();
-    modalName.value = normName(q || '');
-    modalCpf.value = '';
+    // Typed a name → prefill Nome; typed only digits (a CPF search) → prefill CPF.
+    const isName = /\p{L}/u.test(q || '');
+    modalName.value = isName ? normName(q) : '';
+    modalCpf.value = isName ? '' : fmtCpf(q || '');
     showError($('#modal-client-error'), '');
     clientModal.showModal();
     (modalName.value ? modalCpf : modalName).focus();

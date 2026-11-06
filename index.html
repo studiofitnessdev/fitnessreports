@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=d398a557">
+  <link rel="stylesheet" href="css/style.css?v=d3321290">
 </head>
 <body>
 
@@ -41,6 +41,7 @@
       <symbol id="i-chevs" viewBox="0 0 24 24"><path d="M5 6l6 6-6 6M13 6l6 6-6 6"/></symbol>
       <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
       <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
       <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.7-.3 2-1.3 3.3-2.6 3.8.4-3.3-.8-6.3-3.8-8.3.3 3.6-1.6 5.6-3.3 7.6C4.5 11.1 5 12.5 5 15.2 5 19.2 8 22 12 22z"/></symbol>
     </defs>
   </svg>
@@ -107,6 +108,7 @@
                 <svg class="ico field-ico"><use href="#i-search"/></svg>
                 <input type="text" id="sale-client" placeholder="Buscar por nome ou CPF" autocomplete="off"
                        role="combobox" aria-expanded="false" aria-controls="client-options" aria-autocomplete="list" required>
+                <button type="button" class="clear-btn" id="sale-client-clear" aria-label="Limpar busca" hidden><svg class="ico"><use href="#i-x"/></svg></button>
               </div>
               <ul class="combo-list" id="client-options" role="listbox" hidden></ul>
             </div>
@@ -229,6 +231,7 @@
             <span class="sr-only">Buscar</span>
             <svg class="ico field-ico"><use href="#i-search"/></svg>
             <input type="search" id="clients-search" placeholder="Buscar por nome ou CPF">
+            <button type="button" class="clear-btn" id="clients-search-clear" aria-label="Limpar busca" hidden><svg class="ico"><use href="#i-x"/></svg></button>
           </label>
           <button type="button" class="btn btn-hero btn-square" id="client-new" aria-label="Novo cliente">+</button>
         </div>
@@ -334,6 +337,6 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=69799ee0"></script>
+  <script defer src="js/app.js?v=1b6a7616"></script>
 </body>
 </html>
