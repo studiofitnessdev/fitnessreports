@@ -20,6 +20,9 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 1. Open **SQL Editor → New query**.
 2. Paste all of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 
+### 2b. Updates (only if you ran `schema.sql` before these files existed)
+Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes).
+
 ### 3. Block public sign-ups (important)
 The site's key is public, so nobody else must be able to create an account.
 **Authentication → Sign In / Providers → turn OFF "Allow new users to sign up"** and save.
@@ -63,6 +66,7 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
 - **Observação** is pre-filled with the plan period and can be edited.
 - **Defaults**: Pix, Mensal, 3 dias/semana, 07:00.
 - **Cliente**: tapping the field lists every client; typing filters by name (any order, accents ignored) or CPF. If nobody matches, "Cadastrar" opens a form with Nome and CPF. A sale can only be saved for a registered client. Names are stored in uppercase.
+- **Plan status** in Clientes (both logins): each client shows **Ativo**, **Vence em N dias** (7 days or less), **Vence hoje**, **Vencido** or **Sem plano**, based on the sale whose plan reaches the furthest date (renewing early never shortens it). A plan is active up to and including its end date. The teacher gets only these dates through the `client_subscriptions()` database function, never values.
 - **Histórico** filters: Hoje, Ontem, Semana passada (previous Monday–Sunday), Mês atual, Mês passado, Últimos 6 meses, Último ano, or a custom date range. Long-press a filter to see which dates it covers.
 - All dates are shown as dd/MM/yyyy.
 - Free Supabase projects pause after **7 days without use**. If that happens (e.g. holidays), log into Supabase and click **Restore**; no data is lost.

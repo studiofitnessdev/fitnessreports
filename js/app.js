@@ -17,6 +17,9 @@
     history: null,     // last loaded history: { key, range, rows, total } — used by the exports
     historyReq: null,  // date range currently requested (ignores late answers for older filters)
     clientsDirty: true,
+    clientsDay: null,  // day the Clientes list was last drawn (statuses change at midnight)
+    subs: null,        // Map client_id → { plan, plan_start, plan_end } of the plan reaching furthest; null = not loaded
+    subsAt: 0,
   };
 
   // ───────────────────────── Date helpers (always local time) ─────────────────────────
@@ -216,6 +219,7 @@
     try { cached = localStorage.getItem(ROLE_KEY + user.id); } catch (_) { /* storage unavailable */ }
     if (cached) { applyRole(cached); showApp(); }
     loadClients();
+    loadSubscriptions();
 
     const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
     if (error && cached) return; // network hiccup: keep going with the cached role
@@ -238,7 +242,10 @@
     $('#view-title').textContent = TITLES[name];
     $('#totalbar').hidden = name !== 'history';
     if (name === 'history') { loadHistory(); whenIdle(() => loadPdfLibs().catch(() => {})); }
-    if (name === 'clients' && state.clientsDirty) renderClients();
+    if (name === 'clients') {
+      if (state.clientsDirty || state.clientsDay !== toISODate(new Date())) renderClients();
+      if (Date.now() - state.subsAt > 60_000) loadSubscriptions(); // pick up sales made on other phones
+    }
     window.scrollTo(0, 0);
   }
 
@@ -257,6 +264,32 @@
     clientsChanged();
   }
 
+  // Plan status per client. Comes from a database function that returns only plan dates (no values),
+  // so it works for the teacher too, who can't read the sales table.
+  async function loadSubscriptions() {
+    state.subsAt = Date.now();
+    try {
+      const rows = await fetchAll(() => sb.rpc('client_subscriptions').order('client_id'));
+      state.subs = new Map(rows.map((r) => [r.client_id, r]));
+    } catch (err) {
+      console.warn('Status do plano indisponível: rode supabase/003_subscriptions.sql no Supabase.', err);
+      return;
+    }
+    clientsChanged();
+  }
+
+  function subStatus(clientId) {
+    const s = state.subs.get(clientId);
+    if (!s) return { cls: 'none', tag: 'Sem plano', detail: '' };
+    const end = parseISODate(s.plan_end);
+    const days = Math.round((end - startOfDay(new Date())) / 864e5);
+    const plan = PLAN_LABEL[s.plan] || s.plan;
+    if (days < 0) return { cls: 'expired', tag: 'Vencido', detail: `${plan} · venceu em ${fmtDate(end)}` };
+    if (days === 0) return { cls: 'soon', tag: 'Vence hoje', detail: `${plan} · ${fmtDate(end)}` };
+    if (days <= 7) return { cls: 'soon', tag: `Vence em ${days} dia${days > 1 ? 's' : ''}`, detail: `${plan} · até ${fmtDate(end)}` };
+    return { cls: 'active', tag: 'Ativo', detail: `${plan} · até ${fmtDate(end)}` };
+  }
+
   // Re-render client lists only where visible; the Clientes tab renders when opened.
   function clientsChanged() {
     state.clientsDirty = true;
@@ -266,6 +299,7 @@
 
   function renderClients() {
     state.clientsDirty = false;
+    state.clientsDay = toISODate(new Date());
     const q = $('#clients-search').value.trim();
     renderList($('#clients-list'), matchClients(q), (c) => {
       const li = el('li');
@@ -274,6 +308,13 @@
       const info = el('div');
       info.append(el('div', 'row-name', c.name));
       if (c.cpf) info.append(el('div', 'row-meta', fmtCpf(c.cpf)));
+      if (state.subs) {
+        const st = subStatus(c.id);
+        const line = el('div', `sub sub-${st.cls}`);
+        line.append(el('span', 'sub-tag', st.tag));
+        if (st.detail) line.append(el('span', 'sub-detail', st.detail));
+        info.append(line);
+      }
       li.append(el('span', 'avatar', initials), info);
       li.addEventListener('click', () => openClientForm(c));
       return li;
@@ -569,6 +610,15 @@
         if (error) throw error;
       }
       historyCache.clear();
+      // Show the new plan in Clientes right away (the server copy refreshes in the background).
+      if (state.subs) {
+        const prev = state.subs.get(client.id);
+        if (!prev || row.plan_end >= prev.plan_end) {
+          state.subs.set(client.id, { client_id: client.id, plan: row.plan, plan_start: row.plan_start, plan_end: row.plan_end });
+          clientsChanged();
+        }
+      }
+      loadSubscriptions();
       saleForm.reset();
       celebrate(sub);
     } catch (err) {

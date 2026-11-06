@@ -475,6 +475,21 @@ select option { background: var(--surface-2); color: var(--text); }
 }
 .list-clients .row-name { margin: 0; }
 .list-clients .row-meta { margin-top: 2px; }
+.list-clients li > div { flex: 1; min-width: 0; }
+
+/* Plan status (Clientes) */
+.sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 6px; font-size: .85rem; color: var(--muted); }
+.sub-tag {
+  display: inline-block; padding: 2px 9px;
+  font-family: var(--font-display); font-style: italic; font-weight: 800; font-size: .85rem;
+  text-transform: uppercase; letter-spacing: .04em; line-height: 1.35;
+  border-radius: 999px; border: 1px solid currentColor;
+}
+.sub-detail { font-variant-numeric: tabular-nums; }
+.sub-active  .sub-tag { color: #3ddc84; background: rgba(61, 220, 132, .12); }
+.sub-soon    .sub-tag { color: #ffb020; background: rgba(255, 176, 32, .12); }
+.sub-expired .sub-tag { color: #ff4d40; background: rgba(255, 45, 31, .14); }
+.sub-none    .sub-tag { color: var(--muted); border-style: dashed; }
 
 /* ───────── Bottom nav ───────── */
 .bottomnav {
