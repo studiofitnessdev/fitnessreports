@@ -71,3 +71,6 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
 - **Histórico** filters: Hoje, Ontem, Semana passada (previous Monday–Sunday), Mês atual, Mês passado, Últimos 6 meses, Último ano, or a custom date range. Long-press a filter to see which dates it covers.
 - All dates are shown as dd/MM/yyyy.
 - Free Supabase projects pause after **7 days without use**. If that happens (e.g. holidays), log into Supabase and click **Restore**; no data is lost.
+
+## Deploying an update
+A git hook runs `scripts/bump-version.sh` on every commit (enabled once per clone with `git config core.hooksPath .githooks`). It stamps the CSS/JS links in `index.html` with a hash of their contents, so phones never combine a new page with old cached files. GitHub Pages caches each file for 10 minutes, and a mix of old and new files breaks new screens.

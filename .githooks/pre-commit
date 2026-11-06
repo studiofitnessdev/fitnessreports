@@ -1,0 +1,4 @@
+#!/bin/sh
+# Re-stamps the css/js version tags in index.html on every commit (see scripts/bump-version.sh).
+sh scripts/bump-version.sh >/dev/null || exit 1
+git add index.html

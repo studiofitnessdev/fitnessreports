@@ -394,8 +394,6 @@
     $('#usage-updated').textContent = u ? `Atualizado às ${fmtDateTime(new Date()).slice(11)}` : '';
     $('#plan-rows').replaceChildren(
       usageRow('Logins no mês', u ? `${num.format(u.users_month)} de ${num.format(LIMITS.users)}` : `até ${num.format(LIMITS.users)}`, u ? `${u.users} cadastrados · cadastro público bloqueado` : null),
-      usageRow('Tráfego de dados', '5 GB por mês', 'não dá para medir pelo app: veja no painel'),
-      usageRow('Arquivos', '1 GB', 'não usado por este app'),
       usageRow('Pausa automática', 'após 7 dias parado', 'qualquer acesso ao app conta como uso'),
     );
     if (!u) {
