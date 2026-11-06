@@ -15,6 +15,8 @@
     clients: [],
     historyRange: 'today',
     history: null,     // last loaded history: { key, range, rows, total } — used by the exports
+    historyReq: null,  // date range currently requested (ignores late answers for older filters)
+    clientsDirty: true,
   };
 
   // ───────────────────────── Date helpers (always local time) ─────────────────────────
@@ -69,19 +71,28 @@
 
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Animated money counter (scoreboard)
-  function countUp(node, target) {
-    const from = Number(node.dataset.value || 0);
-    node.dataset.value = target;
-    if (reducedMotion() || from === target) { node.textContent = fmtMoney(target); return; }
-    const t0 = performance.now(), dur = 700;
-    const step = (t) => {
-      const p = Math.min(1, (t - t0) / dur);
-      const eased = 1 - Math.pow(1 - p, 3);
-      node.textContent = fmtMoney(from + (target - from) * eased);
-      if (p < 1 && node.dataset.value == target) requestAnimationFrame(step);
+  // Run work when the browser is idle (falls back to a short timeout on Safari)
+  const whenIdle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 200 }) : setTimeout(fn, 16));
+
+  // Render long lists in pieces: the first screenful right away, the rest in idle chunks,
+  // so opening "Último ano" (thousands of rows) never freezes the screen.
+  const listJobs = new WeakMap();
+  function renderList(listEl, items, makeItem, emptyNode) {
+    const job = {};
+    listJobs.set(listEl, job);
+    const FIRST = 40, CHUNK = 200;
+    listEl.replaceChildren(...items.slice(0, FIRST).map(makeItem));
+    if (!items.length && emptyNode) listEl.append(emptyNode);
+    let i = FIRST;
+    const next = () => {
+      if (listJobs.get(listEl) !== job || i >= items.length) return;
+      const frag = document.createDocumentFragment();
+      for (const it of items.slice(i, i + CHUNK)) frag.append(makeItem(it));
+      listEl.append(frag);
+      i += CHUNK;
+      whenIdle(next);
     };
-    requestAnimationFrame(step);
+    whenIdle(next);
   }
 
   // "Venda fechada!" overlay with confetti
@@ -185,21 +196,36 @@
     showLogin();
   });
 
-  async function enterApp(user) {
-    const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
-    if (error || !data) {
-      await sb.auth.signOut();
-      return showLogin('Usuário sem perfil configurado no banco.');
-    }
-    state.role = data.role;
-    const isOwner = state.role === 'owner';
+  // The role is cached per user so the app opens instantly on the next visit; it is re-checked
+  // with the server right after (and the database rules enforce it regardless).
+  const ROLE_KEY = 'sf:role:';
+  function applyRole(role) {
+    state.role = role;
+    const isOwner = role === 'owner';
     $$('[data-owner-only]').forEach((n) => { n.hidden = !isOwner; });
     $('#who').textContent = isOwner ? CFG.users.owner.label : CFG.users.teacher.label;
-
+  }
+  function showApp() {
     $('#view-login').hidden = true;
     $('#app').hidden = false;
     showView('sale');
+  }
+
+  async function enterApp(user) {
+    let cached = null;
+    try { cached = localStorage.getItem(ROLE_KEY + user.id); } catch (_) { /* storage unavailable */ }
+    if (cached) { applyRole(cached); showApp(); }
     loadClients();
+
+    const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    if (error && cached) return; // network hiccup: keep going with the cached role
+    if (error || !data) {
+      try { localStorage.removeItem(ROLE_KEY + user.id); } catch (_) { /* ignore */ }
+      await sb.auth.signOut();
+      return showLogin('Usuário sem perfil configurado no banco.');
+    }
+    try { localStorage.setItem(ROLE_KEY + user.id, data.role); } catch (_) { /* ignore */ }
+    if (data.role !== cached) { applyRole(data.role); showApp(); }
   }
 
   // ───────────────────────── Navigation ─────────────────────────
@@ -211,7 +237,8 @@
     $$('.bottomnav [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
     $('#view-title').textContent = TITLES[name];
     $('#totalbar').hidden = name !== 'history';
-    if (name === 'history') loadHistory();
+    if (name === 'history') { loadHistory(); whenIdle(() => loadPdfLibs().catch(() => {})); }
+    if (name === 'clients' && state.clientsDirty) renderClients();
     window.scrollTo(0, 0);
   }
 
@@ -226,17 +253,21 @@
       toast('Erro ao carregar clientes.');
       return;
     }
-    renderClients();
+    for (const c of state.clients) c.key = searchKey(c.name);
+    clientsChanged();
+  }
+
+  // Re-render client lists only where visible; the Clientes tab renders when opened.
+  function clientsChanged() {
+    state.clientsDirty = true;
+    if (!$('#view-clients').hidden) renderClients();
     if (!$('#client-options').hidden) renderCombo();
   }
 
   function renderClients() {
-    const q = $('#clients-search').value.trim().toUpperCase();
-    const qDigits = q.replace(/\D/g, '');
-    const list = state.clients.filter((c) =>
-      !q || c.name.includes(q) || (qDigits && (c.cpf || '').includes(qDigits)));
-
-    $('#clients-list').replaceChildren(...list.map((c) => {
+    state.clientsDirty = false;
+    const q = $('#clients-search').value.trim();
+    renderList($('#clients-list'), matchClients(q), (c) => {
       const li = el('li');
       const parts = c.name.split(' ').filter(Boolean);
       const initials = (parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
@@ -246,8 +277,7 @@
       li.append(el('span', 'avatar', initials), info);
       li.addEventListener('click', () => openClientForm(c));
       return li;
-    }));
-    if (!list.length) $('#clients-list').append(el('li', 'muted', q ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado.'));
+    }, el('li', 'muted', q ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado.'));
   }
 
   function openClientForm(c) {
@@ -260,7 +290,11 @@
     window.scrollTo(0, 0);
   }
 
-  $('#clients-search').addEventListener('input', renderClients);
+  let clientsSearchFrame = 0; // at most one re-render per frame while typing
+  $('#clients-search').addEventListener('input', () => {
+    cancelAnimationFrame(clientsSearchFrame);
+    clientsSearchFrame = requestAnimationFrame(renderClients);
+  });
   $('#client-new').addEventListener('click', () => openClientForm(null));
   $('#client-cancel').addEventListener('click', () => { $('#client-form').hidden = true; });
   $('#client-cpf').addEventListener('input', (e) => { e.target.value = fmtCpf(e.target.value); });
@@ -357,7 +391,7 @@
     const digits = q.replace(/\D/g, '');
     if (!words.length) return state.clients;
     return state.clients.filter((c) => {
-      const name = searchKey(c.name);
+      const name = c.key ?? searchKey(c.name);
       return words.every((w) => name.includes(w)) || (digits.length >= 3 && (c.cpf || '').includes(digits));
     });
   }
@@ -466,8 +500,9 @@
     btn.disabled = false;
     if (error) { console.error(error); return showError(errBox, 'Erro ao cadastrar. Verifique a internet.'); }
 
+    data.key = searchKey(data.name);
     state.clients = [...state.clients, data].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-    renderClients();
+    clientsChanged();
     clientModal.close();
     selectClient(data);
     toast('Cliente cadastrado! 💪');
@@ -527,6 +562,7 @@
         const { error } = await sb.from('sales').insert(row);
         if (error) throw error;
       }
+      historyCache.clear();
       saleForm.reset();
       celebrate(sub);
     } catch (err) {
@@ -570,24 +606,39 @@
     return null;
   }
 
+  // Cache per date range: switching filters back shows the list instantly, then refreshes quietly.
+  const historyCache = new Map(); // "fromISO|toISO" → { rows, at }
+  const HISTORY_FRESH_MS = 60 * 1000;
+  const sameRows = (a, b) => a.length === b.length && a.every((r, i) => r.id === b[i].id && r.amount === b[i].amount);
+
   async function loadHistory() {
     const key = state.historyRange;
     const range = getRange(key);
     const status = $('#history-status');
-    const list = $('#history-list');
     $('#total-label').textContent = `Total ${RANGE_LABEL[key]}`;
 
-    state.history = null;
-    $('#export-bar').hidden = true;
-
     if (!range) {
-      list.replaceChildren();
+      state.history = null;
+      state.historyReq = null;
+      $('#export-bar').hidden = true;
+      listJobs.delete($('#history-list'));
+      $('#history-list').replaceChildren();
       status.textContent = 'Escolha as datas e toque em Filtrar.';
-      countUp($('#total-value'), 0);
+      $('#total-value').textContent = fmtMoney(0);
       return;
     }
 
-    status.textContent = 'Carregando…';
+    const ck = `${range[0].toISOString()}|${range[1].toISOString()}`;
+    state.historyReq = ck;
+    const cached = historyCache.get(ck);
+    if (cached) renderHistory(key, range, cached.rows);
+    else {
+      state.history = null;
+      $('#export-bar').hidden = true;
+      status.textContent = 'Carregando…';
+    }
+    if (cached && Date.now() - cached.at < HISTORY_FRESH_MS) return;
+
     let rows;
     try {
       rows = await fetchAll(() => sb.from('sales')
@@ -598,18 +649,23 @@
         .order('id', { ascending: false }));
     } catch (err) {
       console.error(err);
-      status.textContent = 'Erro ao carregar o histórico.';
+      if (!cached && state.historyReq === ck) status.textContent = 'Erro ao carregar o histórico.';
       return;
     }
-    if (state.historyRange !== key) return; // user switched filter meanwhile
+    historyCache.set(ck, { rows, at: Date.now() });
+    if (state.historyReq !== ck) return; // user switched filter meanwhile
+    if (cached && sameRows(cached.rows, rows)) return; // nothing changed, keep what's on screen
+    renderHistory(key, range, rows);
+  }
 
+  function renderHistory(key, range, rows) {
     const total = rows.reduce((sum, r) => sum + Number(r.amount), 0);
-    countUp($('#total-value'), total);
+    $('#total-value').textContent = fmtMoney(total);
     state.history = { key, range, rows, total };
     $('#export-bar').hidden = !rows.length || state.role !== 'owner';
-    status.textContent = `${rows.length === 1 ? '1 venda' : `${rows.length} vendas`} · ${fmtRange(range)}`;
+    $('#history-status').textContent = `${rows.length === 1 ? '1 venda' : `${rows.length} vendas`} · ${fmtRange(range)}`;
 
-    list.replaceChildren(...rows.map((r) => {
+    renderList($('#history-list'), rows, (r) => {
       const li = el('li');
       const top = el('div', 'row');
       top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`));
@@ -624,8 +680,7 @@
       ].join(' · '));
       li.append(top, mid, meta);
       return li;
-    }));
-    if (!rows.length) list.append(el('li', 'muted', 'Nenhuma venda nesse período. Bora vender!'));
+    }, el('li', 'muted', 'Nenhuma venda nesse período. Bora vender!'));
   }
 
   // ───────────────────────── Export (CSV / PDF) ─────────────────────────
