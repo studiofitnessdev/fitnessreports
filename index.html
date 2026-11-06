@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=e7418ae4">
+  <link rel="stylesheet" href="css/style.css?v=72f4e12b">
 </head>
 <body>
 
@@ -312,6 +312,23 @@
           <a class="btn btn-ghost btn-sm usage-link" id="supabase-link" target="_blank" rel="noopener">Abrir painel do Supabase</a>
         </div>
 
+        <div class="panel">
+          <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-download"/></svg></span> Dados</div>
+          <div class="data-block">
+            <div class="pw-title">Backup</div>
+            <p class="data-text">Todas as vendas e todos os clientes em um arquivo <strong>.zip</strong> (planilhas CSV). Guarde em um lugar seguro: com ele os dados podem ser recuperados.</p>
+            <p class="error" id="backup-error" hidden></p>
+            <button type="button" class="btn btn-ghost btn-block" id="backup-btn"><svg class="ico"><use href="#i-download"/></svg> Baixar backup</button>
+            <p class="data-status" id="backup-status" hidden></p>
+          </div>
+          <div class="data-block data-danger">
+            <div class="pw-title">Apagar dados</div>
+            <p class="data-text">Apaga <strong>todas as vendas e todos os clientes</strong>. Os logins e as senhas continuam. <strong>Não dá para desfazer.</strong></p>
+            <button type="button" class="btn btn-danger btn-block" id="wipe-btn" disabled>Apagar todos os dados</button>
+            <p class="data-hint" id="wipe-hint">Baixe o backup antes de apagar.</p>
+          </div>
+        </div>
+
         <div class="usage-foot">
           <span id="usage-updated"></span>
           <button type="button" class="btn btn-ghost btn-sm" id="usage-refresh">Atualizar</button>
@@ -383,10 +400,31 @@
     </form>
   </dialog>
 
+  <!-- Confirmação antes de apagar os dados -->
+  <dialog class="modal" id="wipe-modal" aria-labelledby="wipe-modal-title">
+    <form id="wipe-modal-form" class="panel" novalidate>
+      <div class="panel-head" id="wipe-modal-title"><span class="step"><svg class="ico"><use href="#i-lock"/></svg></span> Apagar todos os dados?</div>
+      <p class="pw-modal-text" id="wipe-modal-text"></p>
+      <label class="field">
+        <span>Digite APAGAR para confirmar</span>
+        <input type="text" id="wipe-modal-word" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      </label>
+      <label class="field">
+        <span id="wipe-modal-current-label">Senha atual</span>
+        <input type="password" id="wipe-modal-current" autocomplete="current-password">
+      </label>
+      <p class="error" id="wipe-modal-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="wipe-modal-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-hero" id="wipe-modal-ok">Apagar tudo</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="toast" id="toast" hidden></div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=4a67df78"></script>
+  <script defer src="js/app.js?v=15b27fb8"></script>
 </body>
 </html>

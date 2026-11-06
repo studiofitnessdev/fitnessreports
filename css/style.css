@@ -626,3 +626,14 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .pw-form .error { margin: 0 0 12px; }
 .pw-modal-text { margin: 0 0 16px; line-height: 1.45; color: var(--muted); }
 .pw-modal-text strong { color: var(--text); }
+
+/* ───────── Configurações: data (backup / wipe) ───────── */
+.data-block + .data-block { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
+.data-text { margin: 0 0 14px; line-height: 1.45; color: var(--muted); }
+.data-text strong { color: var(--text); }
+.data-status { margin: 10px 0 0; font-size: .9rem; color: #3ddc84; }
+.data-hint { margin: 10px 0 0; font-size: .9rem; color: var(--muted); text-align: center; }
+.data-danger .pw-title { color: #ff4d40; }
+.btn-danger { color: #ff4d40; background: rgba(225, 6, 0, .08); border: 1.5px solid rgba(255, 45, 31, .7); }
+.btn-danger:disabled { opacity: .45; }
+#backup-btn .ico { vertical-align: -3px; }

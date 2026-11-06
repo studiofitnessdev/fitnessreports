@@ -452,6 +452,173 @@
 
   $('#usage-refresh').addEventListener('click', loadUsage);
 
+  // ───────────────────────── Configurações: backup and wipe (Anderson only) ─────────────────────────
+  // Backup = one .zip with vendas.csv and clientes.csv in the raw database format (comma separated,
+  // ISO dates, dot decimals, original ids). Restoring keeps the receipt numbers, so it needs SQL
+  // (ids are "generated always"): load the CSVs into temp tables, then insert … overriding system value.
+  const SALE_COLS = ['id', 'created_at', 'client_id', 'client_name', 'amount', 'payment_method', 'class_time', 'plan',
+    'days_per_week', 'plan_start', 'plan_end', 'notes', 'signature', 'created_by'];
+  const CLIENT_COLS = ['id', 'name', 'cpf', 'created_at'];
+  const BACKUP_README = [
+    'Backup do Studio Fitness',
+    '',
+    'vendas.csv   - todas as vendas',
+    'clientes.csv - todos os clientes',
+    '',
+    'Formato do banco (separado por virgula, datas AAAA-MM-DD, valores com ponto),',
+    'com os numeros originais dos recibos e dos clientes.',
+    'Para recuperar os dados no app, peca ajuda a quem configurou o sistema.',
+    'Para abrir no Excel: Dados -> De Texto/CSV -> origem UTF-8, delimitador virgula.',
+    'Para uma planilha de vendas facil de ler, use Historico -> CSV no app.',
+  ].join('\r\n');
+
+  function rawCsv(cols, rows) {
+    const cell = (v) => {
+      if (v == null) return '';
+      const t = String(v);
+      return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    return [cols.join(','), ...rows.map((r) => cols.map((c) => cell(r[c])).join(','))].join('\r\n') + '\r\n';
+  }
+
+  // Minimal .zip writer (files stored without compression; a year of sales is well under 1 MB).
+  const CRC_TABLE = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+    return t;
+  })();
+  const crc32 = (bytes) => { let c = 0xFFFFFFFF; for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+
+  function makeZip(files) {
+    const enc = new TextEncoder();
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const parts = [], central = [];
+    let offset = 0;
+    for (const f of files) {
+      const name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
+      local.setUint16(8, 0, true); local.setUint16(10, dosTime, true); local.setUint16(12, dosDate, true);
+      local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true);
+      local.setUint16(26, name.length, true); local.setUint16(28, 0, true);
+      const cen = new DataView(new ArrayBuffer(46));
+      cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true);
+      cen.setUint16(10, 0, true); cen.setUint16(12, dosTime, true); cen.setUint16(14, dosDate, true);
+      cen.setUint32(16, crc, true); cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true);
+      cen.setUint16(28, name.length, true); cen.setUint32(42, offset, true);
+      parts.push(local, name, data);
+      central.push(cen, name);
+      offset += 30 + name.length + data.length;
+    }
+    const cenSize = central.reduce((n, p) => n + p.byteLength, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+  }
+
+  state.backup = null; // { at, maxSale, maxClient, sales, clients } — the wipe only deletes what this covers
+
+  $('#backup-btn').addEventListener('click', async () => {
+    const btn = $('#backup-btn');
+    const errBox = $('#backup-error');
+    showError(errBox, '');
+    btn.disabled = true;
+    try {
+      const [sales, clients] = await Promise.all([
+        fetchAll(() => sb.from('sales').select(SALE_COLS.join(',')).order('id')),
+        fetchAll(() => sb.from('clients').select(CLIENT_COLS.join(',')).order('id')),
+      ]);
+      const stamp = toISODate(new Date());
+      download(makeZip([
+        { name: 'vendas.csv', text: rawCsv(SALE_COLS, sales) },
+        { name: 'clientes.csv', text: rawCsv(CLIENT_COLS, clients) },
+        { name: 'LEIA-ME.txt', text: BACKUP_README },
+      ]), `studio-fitness-backup_${stamp}.zip`);
+      state.backup = {
+        at: new Date(),
+        maxSale: sales.length ? sales[sales.length - 1].id : 0,
+        maxClient: clients.length ? clients[clients.length - 1].id : 0,
+        sales: sales.length,
+        clients: clients.length,
+      };
+      const status = $('#backup-status');
+      status.textContent = `Backup baixado às ${fmtDateTime(state.backup.at).slice(11)}: ${num.format(sales.length)} vendas e ${num.format(clients.length)} clientes.`;
+      status.hidden = false;
+      $('#wipe-btn').disabled = false;
+      $('#wipe-hint').hidden = true;
+    } catch (err) {
+      console.error(err);
+      showError(errBox, 'Não foi possível gerar o backup. Verifique a internet e tente de novo.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  const wipeModal = $('#wipe-modal');
+  $('#wipe-btn').addEventListener('click', () => {
+    const b = state.backup;
+    if (!b) return;
+    const text = $('#wipe-modal-text');
+    text.replaceChildren(
+      'Serão apagadas ', el('strong', null, `${num.format(b.sales)} vendas`), ' e ', el('strong', null, `${num.format(b.clients)} clientes`),
+      ` (tudo o que está no backup das ${fmtDateTime(b.at).slice(11)}). Vendas e clientes criados depois do backup continuam. Os logins continuam. Não dá para desfazer.`,
+    );
+    $('#wipe-modal-word').value = '';
+    $('#wipe-modal-current').value = '';
+    $('#wipe-modal-current-label').textContent = `Senha atual de ${CFG.users.owner.label}`;
+    showError($('#wipe-modal-error'), '');
+    wipeModal.showModal();
+    $('#wipe-modal-word').focus();
+  });
+  $('#wipe-modal-cancel').addEventListener('click', () => wipeModal.close());
+  wipeModal.addEventListener('click', (e) => { if (e.target === wipeModal) wipeModal.close(); }); // tap on backdrop
+  wipeModal.addEventListener('close', () => { $('#wipe-modal-current').value = ''; });
+
+  $('#wipe-modal-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const b = state.backup;
+    const errBox = $('#wipe-modal-error');
+    if (!b) return wipeModal.close();
+    if ($('#wipe-modal-word').value.trim().toUpperCase() !== 'APAGAR') return showError(errBox, 'Digite APAGAR para confirmar.');
+    const current = $('#wipe-modal-current').value;
+    if (!current) return showError(errBox, 'Digite a senha atual.');
+    const btn = $('#wipe-modal-ok');
+    btn.disabled = true;
+    try {
+      const { data: { user } } = await sb.auth.getUser();
+      const check = await sb.auth.signInWithPassword({ email: user?.email || CFG.users.owner.email, password: current });
+      if (check.error) return showError(errBox, 'Senha atual incorreta.');
+
+      const { data, error } = await sb.rpc('wipe_data', { max_sale_id: b.maxSale, max_client_id: b.maxClient });
+      if (error) {
+        console.error(error);
+        return showError(errBox, error.code === 'PGRST202'
+          ? 'Falta configurar: rode supabase/006_wipe.sql no Supabase.'
+          : 'Não foi possível apagar. Nada foi apagado. Tente de novo.');
+      }
+      wipeModal.close();
+      // A new wipe needs a new backup.
+      state.backup = null;
+      $('#wipe-btn').disabled = true;
+      $('#wipe-hint').hidden = false;
+      $('#backup-status').hidden = true;
+      historyCache.clear();
+      state.subs = state.subs && new Map();
+      loadClients();
+      loadSubscriptions();
+      loadUsage();
+      toast(`Apagados: ${num.format(data?.sales ?? 0)} vendas e ${num.format(data?.clients ?? 0)} clientes.`);
+    } catch (err) {
+      console.error(err);
+      showError(errBox, 'Sem conexão. Tente de novo.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // ───────────────────────── Configurações: passwords (Anderson only) ─────────────────────────
   // Anderson's own password goes through Supabase Auth; the Professor's through set_teacher_password()
   // (supabase/005_passwords.sql). Either change needs a confirmation with Anderson's current password.
