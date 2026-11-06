@@ -233,15 +233,16 @@
   }
 
   // ───────────────────────── Navigation ─────────────────────────
-  const TITLES = { sale: 'Nova venda', history: 'Histórico', clients: 'Clientes' };
+  const TITLES = { sale: 'Nova venda', history: 'Histórico', clients: 'Clientes', settings: 'Configurações' };
 
   function showView(name) {
-    if (name === 'history' && state.role !== 'owner') name = 'sale';
+    if ((name === 'history' || name === 'settings') && state.role !== 'owner') name = 'sale';
     for (const v of Object.keys(TITLES)) $(`#view-${v}`).hidden = v !== name;
     $$('.bottomnav [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
     $('#view-title').textContent = TITLES[name];
     $('#totalbar').hidden = name !== 'history';
     if (name === 'history') { loadHistory(); whenIdle(() => loadPdfLibs().catch(() => {})); }
+    if (name === 'settings') loadUsage();
     if (name === 'clients') {
       if (state.clientsDirty || state.clientsDay !== toISODate(new Date())) renderClients();
       if (Date.now() - state.subsAt > 60_000) loadSubscriptions(); // pick up sales made on other phones
@@ -358,6 +359,87 @@
     toast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
     loadClients();
   });
+
+  // ───────────────────────── Config: database usage (Anderson only) ─────────────────────────
+  // Free plan limits. Only the database size can be measured from the app (via db_usage());
+  // bandwidth is only reported in the Supabase dashboard, which needs a secret key we can't ship.
+  const LIMITS = { dbBytes: 500 * 1024 * 1024, users: 50000 };
+  const num = new Intl.NumberFormat('pt-BR');
+  const dec1 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 });
+  const fmtBytes = (b) => (b < 1024 * 1024 ? `${num.format(Math.max(1, Math.round(b / 1024)))} KB` : `${dec1.format(b / 1024 / 1024)} MB`);
+  $('#supabase-link').href = `https://supabase.com/dashboard/project/${new URL(CFG.supabaseUrl).hostname.split('.')[0]}`;
+
+  function usageRow(k, v, sub) {
+    const li = el('li');
+    const vEl = el('span', 'v', v);
+    if (sub) vEl.append(el('small', null, sub));
+    li.append(el('span', 'k', k), vEl);
+    return li;
+  }
+
+  let usageReq = 0;
+  async function loadUsage() {
+    const req = ++usageReq;
+    $('#usage-updated').textContent = 'Atualizando…';
+    const { data, error } = await sb.rpc('db_usage');
+    if (req !== usageReq) return;
+    renderUsage(error ? null : data);
+    if (error) console.error(error);
+  }
+
+  function renderUsage(u) {
+    const errBox = $('#usage-error');
+    $('#usage-body').hidden = !u;
+    errBox.hidden = !!u;
+    $('#usage-updated').textContent = u ? `Atualizado às ${fmtDateTime(new Date()).slice(11)}` : '';
+    $('#plan-rows').replaceChildren(
+      usageRow('Logins no mês', u ? `${num.format(u.users_month)} de ${num.format(LIMITS.users)}` : `até ${num.format(LIMITS.users)}`, u ? `${u.users} cadastrados · cadastro público bloqueado` : null),
+      usageRow('Tráfego de dados', '5 GB por mês', 'não dá para medir pelo app: veja no painel'),
+      usageRow('Arquivos', '1 GB', 'não usado por este app'),
+      usageRow('Pausa automática', 'após 7 dias parado', 'qualquer acesso ao app conta como uso'),
+    );
+    if (!u) {
+      errBox.textContent = 'Não foi possível ler o uso do banco. Se for a primeira vez, rode supabase/004_usage.sql no SQL Editor do Supabase.';
+      return;
+    }
+
+    const pct = (u.db_bytes / LIMITS.dbBytes) * 100;
+    const level = pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : '';
+    $('#db-used').textContent = fmtBytes(u.db_bytes);
+    const pctEl = $('#db-pct');
+    pctEl.textContent = `${pct < 1 ? dec1.format(Math.max(pct, 0.1)) : num.format(Math.round(pct))}% usado`;
+    pctEl.className = `usage-pct ${level}`;
+    const fill = $('#db-meter-fill');
+    fill.style.width = `${Math.min(100, pct)}%`;
+    fill.className = `meter-fill ${level}`;
+    $('#db-meter').setAttribute('aria-valuenow', String(Math.round(pct)));
+
+    const system = Math.max(0, u.db_bytes - u.sales_bytes - u.clients_bytes);
+    $('#db-rows').replaceChildren(
+      usageRow('Vendas', fmtBytes(u.sales_bytes), `${num.format(u.sales_rows)} registros`),
+      usageRow('Clientes', fmtBytes(u.clients_bytes), `${num.format(u.clients_rows)} registros`),
+      usageRow('Sistema do Supabase', fmtBytes(system), 'logins e estrutura interna'),
+      usageRow('Livre', fmtBytes(Math.max(0, LIMITS.dbBytes - u.db_bytes))),
+    );
+
+    // Growth forecast from the last 90 days (or since the first sale, if newer).
+    const forecast = $('#db-forecast');
+    if (!u.sales_rows || !u.first_sale) {
+      forecast.textContent = 'Ainda não há vendas para estimar o crescimento.';
+      return;
+    }
+    const daysOfData = Math.min(90, Math.max(1, (Date.now() - new Date(u.first_sale)) / 864e5));
+    const perDay = u.sales_90d / daysOfData;
+    // A sale costs its row plus ~150 bytes of row header and index entries.
+    const perYear = perDay * 365 * (u.row_bytes + 150);
+    const years = perYear > 0 ? (LIMITS.dbBytes - u.db_bytes) / perYear : Infinity;
+    const yearsText = years > 100 ? 'mais de 100 anos' : years >= 2 ? `cerca de ${num.format(Math.floor(years))} anos` : `cerca de ${num.format(Math.max(1, Math.floor(years * 12)))} meses`;
+    forecast.textContent = perDay > 0
+      ? `No ritmo atual (≈ ${dec1.format(perDay)} vendas por dia), o banco cresce ≈ ${fmtBytes(perYear)} por ano. Espaço para ${yearsText}.`
+      : 'Nenhuma venda nos últimos 90 dias: o banco não está crescendo.';
+  }
+
+  $('#usage-refresh').addEventListener('click', loadUsage);
 
   // ───────────────────────── Sale form ─────────────────────────
   const saleForm = $('#sale-form');

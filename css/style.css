@@ -579,3 +579,25 @@ select option { background: var(--surface-2); color: var(--text); }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .confetti { display: none; }
 }
+
+/* ───────── Config (database usage) ───────── */
+.usage-main { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.usage-num { color: var(--muted); font-weight: 600; }
+.usage-num strong { font-size: 1.9rem; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+.usage-pct { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ok, #3ddc84); }
+.usage-pct.warn { color: #ffb020; }
+.usage-pct.bad { color: #ff4d40; }
+.meter { height: 12px; border-radius: 999px; background: #232327; border: 1px solid var(--line-strong); overflow: hidden; }
+.meter-fill { height: 100%; width: 0; min-width: 6px; border-radius: inherit; background: linear-gradient(90deg, #1fa85c, #3ddc84); }
+.meter-fill.warn { background: linear-gradient(90deg, #d98a00, #ffb020); }
+.meter-fill.bad { background: var(--red-metal); }
+.usage-rows { list-style: none; margin: 14px 0 0; padding: 0; }
+.usage-rows li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.usage-rows li:first-child { border-top: 0; }
+.usage-rows .k { color: var(--muted); white-space: nowrap; }
+.usage-rows .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.usage-rows .v small { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); }
+.usage-note { margin: 12px 0 0; padding: 12px; border-radius: 10px; background: rgba(61, 220, 132, .08); border: 1px solid rgba(61, 220, 132, .25); font-size: .92rem; line-height: 1.45; }
+.usage-error { margin: 0; color: #ffb020; line-height: 1.45; }
+.usage-link { margin-top: 12px; text-decoration: none; color: inherit; }
+.usage-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: .85rem; }

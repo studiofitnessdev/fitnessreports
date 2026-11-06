@@ -39,6 +39,8 @@
       <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></symbol>
       <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.8"/><path d="M6 9.5v5M18 9.5v5"/></symbol>
       <symbol id="i-chevs" viewBox="0 0 24 24"><path d="M5 6l6 6-6 6M13 6l6 6-6 6"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+      <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
       <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.7-.3 2-1.3 3.3-2.6 3.8.4-3.3-.8-6.3-3.8-8.3.3 3.6-1.6 5.6-3.3 7.6C4.5 11.1 5 12.5 5 15.2 5 19.2 8 22 12 22z"/></symbol>
     </defs>
   </svg>
@@ -251,6 +253,34 @@
 
         <ul class="list list-clients" id="clients-list"></ul>
       </section>
+
+      <!-- Configurações (somente Anderson) -->
+      <section id="view-settings" class="view" hidden>
+        <div class="panel">
+          <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-db"/></svg></span> Banco de dados</div>
+          <p class="usage-error" id="usage-error" hidden></p>
+          <div id="usage-body">
+            <div class="usage-main">
+              <div class="usage-num"><strong id="db-used">…</strong> <span>de 500 MB</span></div>
+              <div class="usage-pct" id="db-pct"></div>
+            </div>
+            <div class="meter" role="progressbar" aria-label="Espaço usado do banco" aria-valuemin="0" aria-valuemax="100" id="db-meter"><div class="meter-fill" id="db-meter-fill"></div></div>
+            <ul class="usage-rows" id="db-rows"></ul>
+            <p class="usage-note" id="db-forecast"></p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-bolt"/></svg></span> Plano grátis</div>
+          <ul class="usage-rows" id="plan-rows"></ul>
+          <a class="btn btn-ghost btn-sm usage-link" id="supabase-link" target="_blank" rel="noopener">Abrir painel do Supabase</a>
+        </div>
+
+        <div class="usage-foot">
+          <span id="usage-updated"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="usage-refresh">Atualizar</button>
+        </div>
+      </section>
     </main>
 
     <!-- Placar do histórico -->
@@ -263,6 +293,7 @@
       <button type="button" data-view="sale" class="active"><svg class="ico"><use href="#i-sale"/></svg><span>Venda</span></button>
       <button type="button" data-view="history" data-owner-only><svg class="ico"><use href="#i-chart"/></svg><span>Histórico</span></button>
       <button type="button" data-view="clients"><svg class="ico"><use href="#i-users"/></svg><span>Clientes</span></button>
+      <button type="button" data-view="settings" data-owner-only><svg class="ico"><use href="#i-gear"/></svg><span>Config</span></button>
       <button type="button" id="logout"><svg class="ico"><use href="#i-power"/></svg><span>Sair</span></button>
     </nav>
   </div>
