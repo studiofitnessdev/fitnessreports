@@ -1,8 +1,8 @@
-// Sale receipt as an image for the 58 mm thermal printer (shared to the Mini Impressora app).
+// Sale receipt drawn for the 58 mm thermal printer (sent directly by js/printer.js).
 // 384 px wide = 48 mm of printable width at 203 dpi, the standard for 58 mm paper.
 // Pure black on white, no gray or red: thermal heads print only black, and colors come out faint or dotted.
 // Usage: await Receipt.render({ gym, number, when, client, cpf, plan, days, time, start, end, payment, amount, notes, signature })
-// Every field is an already formatted string; empty ones are skipped. Returns a PNG Blob.
+// Every field is an already formatted string; empty ones are skipped. Returns a black-and-white canvas.
 window.Receipt = (() => {
   'use strict';
 
@@ -140,7 +140,7 @@ window.Receipt = (() => {
       }
       rule(false);
       text('Obrigado! Bora treinar!', { weight: 700, size: 24, align: 'center', gap: 4 });
-      y += 70; // blank paper before the tear bar, so it never cuts the text
+      y += 16; // the printer feeds more paper after the image
 
       // Crop and turn every pixel pure black or white (crisp print, no gray dots).
       const out = document.createElement('canvas');
@@ -156,7 +156,7 @@ window.Receipt = (() => {
         d[i + 3] = 255;
       }
       octx.putImageData(img, 0, 0);
-      return new Promise((resolve, reject) => out.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'));
+      return out;
     });
   }
 

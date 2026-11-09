@@ -104,7 +104,7 @@
     'Sem dor, sem ganho!', 'É hora do show!', 'Ninguém segura!', 'Bora pra cima!',
   ];
   let celebrateTimer;
-  let celebrateReceipt = null; // { file } once the receipt image is ready; null while preparing
+  let celebrateReceipt = null; // { canvas } once the receipt is drawn; null while preparing
   // With a receipt to print, the overlay stays until "Bora!" (no auto-close, backdrop taps ignored)
   // so the print button can't disappear before it's used.
   function celebrate(sub, receipt) {
@@ -116,15 +116,14 @@
     box.dataset.sticky = receipt ? '1' : '';
     printBtn.hidden = !receipt;
     if (receipt) {
-      // Render now, not on tap: sharing must start right inside the tap, before the browser's
-      // "user just tapped" window expires.
+      // Draw now, not on tap: the browser only opens the printer list within a moment of the tap.
       printBtn.disabled = true;
       $('#celebrate-print-label').textContent = 'Preparando recibo…';
       const job = {};
       celebrate.job = job;
-      receiptFile(receipt).then((file) => {
+      window.Receipt.render(receipt).then((canvas) => {
         if (celebrate.job !== job) return;
-        celebrateReceipt = { file };
+        celebrateReceipt = { canvas };
         printBtn.disabled = false;
         $('#celebrate-print-label').textContent = 'Imprimir recibo';
       }).catch((err) => {
@@ -167,7 +166,7 @@
   });
   $('#celebrate-print').addEventListener('click', (e) => {
     e.stopPropagation();
-    if (celebrateReceipt) shareReceipt(celebrateReceipt.file);
+    if (celebrateReceipt) printReceipt(celebrateReceipt.canvas, e.currentTarget);
   });
 
   // ───────────────────────── Supabase ─────────────────────────
@@ -1145,9 +1144,9 @@
     logo: 'img/emblem.svg', // swap for the real logo (PNG/SVG) when it arrives
   };
 
-  // ───────────────────────── Receipt (58 mm thermal printer, via the Mini Impressora app) ─────────────────────────
-  // The receipt is an image (js/receipt.js) handed to the phone's share sheet: pick "Mini Impressora"
-  // and it prints over Bluetooth like any other image. Without a share sheet the image is downloaded.
+  // ───────────────────────── Receipt (58 mm Bluetooth thermal printer, printed directly) ─────────────────────────
+  // js/receipt.js draws it, js/printer.js sends it to the printer. Problems open #print-modal with
+  // what to do and buttons to retry or pick another printer (each is a new tap, which the browser requires).
   function receiptData(s) {
     return {
       gym: { phone: GYM.phone, address: GYM.address.split(' · ') },
@@ -1167,34 +1166,73 @@
     };
   }
 
-  const receiptFile = async (data) => new File([await window.Receipt.render(data)],
-    `recibo${data.number ? `-${data.number}` : ''}_${data.when.slice(0, 10).replace(/\//g, '-')}.png`, { type: 'image/png' });
+  const printModal = $('#print-modal');
+  let printJob = null; // { canvas, btn } — the receipt the modal's buttons retry
+  let printing = false;
 
-  // Must be called straight from a tap (the share sheet needs it).
-  async function shareReceipt(file) {
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file] }); // files only: some apps drop the image when text comes along
-        return;
-      } catch (err) {
-        if (err.name === 'AbortError') return; // closed the share sheet
-        console.warn('Share failed, downloading instead', err);
-      }
+  function printErrorText(err) {
+    const v = window.Printer.chromeVersion();
+    const updateChrome = v ? `Atualize o Google Chrome pela Play Store: este é o ${v}, precisa ser 137 ou mais novo.` : 'Abra o app no Google Chrome, no Android.';
+    switch (err.name) {
+      case 'NotSupported':
+        return `Este navegador não imprime direto na impressora. ${updateChrome}`;
+      case 'NotFoundError': // printer list closed without picking, or nothing listed
+        return 'Nenhuma impressora escolhida. Ela precisa estar ligada e pareada no Bluetooth do aparelho (Configurações → Bluetooth).'
+          + (window.Printer.hasSerial() ? '' : ` Se ela não aparece na lista: ${updateChrome}`);
+      case 'SecurityError':
+      case 'NotAllowedError':
+        return 'O navegador não deixou abrir a impressora. Toque em Tentar de novo.';
+      case 'NoPrinterService':
+        return 'Esse aparelho Bluetooth não aceita impressão. Escolha outra impressora.';
+      default:
+        return 'Não deu para imprimir. Confira se a impressora está ligada, com papel e perto do aparelho, e tente de novo.';
     }
-    download(file, file.name);
-    toast('Recibo baixado. Abra a imagem nos Downloads pelo Mini Impressora.');
   }
 
-  async function reprintReceipt(sale, btn) {
+  // Must start from a tap: the browser shows the printer list only right after one.
+  async function printReceipt(canvas, btn, opts = {}) {
+    if (printing) return;
+    printing = true;
+    printJob = { canvas, btn };
     btn.disabled = true;
+    toast('Imprimindo recibo…');
     try {
-      await shareReceipt(await receiptFile(receiptData({ ...sale, cpf: sale.clients?.cpf })));
+      await window.Printer.print(canvas, opts);
+      toast('Recibo impresso! 🧾');
     } catch (err) {
       console.error(err);
-      toast('Erro ao gerar o recibo.');
+      $('#toast').hidden = true;
+      $('#print-modal-text').textContent = printErrorText(err);
+      $('#print-modal-retry').hidden = err.name === 'NotSupported';
+      $('#print-modal-choose').hidden = err.name === 'NotSupported';
+      // Bluetooth classic picked by default; offer BLE when the printer didn't show up in that list.
+      $('#print-modal-ble').hidden = !(window.Printer.hasBle() && window.Printer.hasSerial() && err.name !== 'NotSupported');
+      printModal.showModal();
     } finally {
+      printing = false;
       btn.disabled = false;
     }
+  }
+
+  const retryPrint = (opts) => {
+    printModal.close();
+    if (printJob) printReceipt(printJob.canvas, printJob.btn, opts);
+  };
+  $('#print-modal-close').addEventListener('click', () => printModal.close());
+  printModal.addEventListener('click', (e) => { if (e.target === printModal) printModal.close(); }); // tap on backdrop
+  $('#print-modal-retry').addEventListener('click', () => retryPrint({}));
+  $('#print-modal-choose').addEventListener('click', () => retryPrint({ choose: true, useMode: window.Printer.hasSerial() ? 'serial' : 'ble' }));
+  $('#print-modal-ble').addEventListener('click', () => retryPrint({ choose: true, useMode: 'ble' }));
+
+  async function reprintReceipt(sale, btn) {
+    let canvas;
+    try {
+      canvas = await window.Receipt.render(receiptData({ ...sale, cpf: sale.clients?.cpf }));
+    } catch (err) {
+      console.error(err);
+      return toast('Erro ao gerar o recibo.');
+    }
+    printReceipt(canvas, btn);
   }
 
   const fileDate = (d) => fmtDate(d).replace(/\//g, '-');
