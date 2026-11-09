@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=f9998346">
+  <link rel="stylesheet" href="css/style.css?v=b12c4678">
 </head>
 <body>
 
@@ -124,7 +124,7 @@
             </label>
             <fieldset class="field">
               <legend>Forma de pagamento</legend>
-              <div class="pills">
+              <div class="pills pills-pay">
                 <label><input type="radio" name="payment" value="pix" checked><span><svg class="ico"><use href="#i-pix"/></svg>Pix</span></label>
                 <label><input type="radio" name="payment" value="credito"><span><svg class="ico"><use href="#i-card"/></svg>Crédito</span></label>
                 <label><input type="radio" name="payment" value="debito"><span><svg class="ico"><use href="#i-card"/></svg>Débito</span></label>
@@ -172,7 +172,7 @@
             <label class="field field-icon">
               <span>Assinatura</span>
               <svg class="ico field-ico"><use href="#i-pen"/></svg>
-              <input type="text" id="sale-signature" placeholder="Quem atendeu">
+              <input type="text" id="sale-signature" placeholder="Quem atendeu" autocapitalize="words" enterkeyhint="done">
             </label>
           </div>
 
@@ -232,7 +232,7 @@
           <label class="field field-icon">
             <span class="sr-only">Buscar</span>
             <svg class="ico field-ico"><use href="#i-search"/></svg>
-            <input type="search" id="clients-search" placeholder="Buscar por nome ou CPF">
+            <input type="search" id="clients-search" placeholder="Buscar por nome ou CPF" autocomplete="off" enterkeyhint="search">
             <button type="button" class="clear-btn" id="clients-search-clear" aria-label="Limpar busca" hidden><svg class="ico"><use href="#i-x"/></svg></button>
           </label>
           <button type="button" class="btn btn-hero btn-square" id="client-new" aria-label="Novo cliente">+</button>
@@ -243,7 +243,7 @@
           <input type="hidden" id="client-id">
           <label class="field">
             <span>Nome</span>
-            <input type="text" id="client-name" required>
+            <input type="text" id="client-name" autocapitalize="characters" autocomplete="off" required>
           </label>
           <label class="field">
             <span>CPF</span>
@@ -371,7 +371,7 @@
       <div class="panel-head" id="client-modal-title"><span class="step"><svg class="ico"><use href="#i-user"/></svg></span> Novo cliente</div>
       <label class="field">
         <span>Nome</span>
-        <input type="text" id="modal-client-name" required>
+        <input type="text" id="modal-client-name" autocapitalize="characters" autocomplete="off" required>
       </label>
       <label class="field">
         <span>CPF</span>
@@ -445,6 +445,6 @@
   <script defer src="js/printer.js?v=b73ddb7a"></script>
   <script defer src="js/receipt.js?v=c1b1b2cd"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=854ea168"></script>
+  <script defer src="js/app.js?v=16cc38b4"></script>
 </body>
 </html>

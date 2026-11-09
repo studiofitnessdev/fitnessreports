@@ -73,6 +73,28 @@
   const showError = (node, msg) => { node.textContent = msg; node.hidden = !msg; };
 
   const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const touchScreen = window.matchMedia('(pointer: coarse)').matches;
+
+  // ── On-screen keyboard: hide the bottom bar and the total bar while it's open (<html class="kb-open">).
+  // Many Android browsers shrink the page when the keyboard opens, which lifts fixed bars on top of it.
+  // Hidden on focus of a text field (the keyboard is coming), shown again on blur, and also when the
+  // keyboard is closed with the back button while the field keeps focus (the visible area grows back).
+  const typingField = (n) => !!n?.matches?.('textarea, input:not([type="radio"]):not([type="checkbox"]):not([type="date"]):not([type="button"]):not([type="submit"])');
+  const setKeyboard = (open) => document.documentElement.classList.toggle('kb-open', open);
+  if (touchScreen) {
+    document.addEventListener('focusin', (e) => { if (typingField(e.target)) setKeyboard(true); });
+    document.addEventListener('focusout', () => setTimeout(() => { if (!typingField(document.activeElement)) setKeyboard(false); }, 60));
+    const vv = window.visualViewport;
+    if (vv) {
+      let fullHeight = vv.height;
+      vv.addEventListener('resize', () => {
+        fullHeight = Math.max(fullHeight, vv.height);
+        if (vv.height > fullHeight - 100) setKeyboard(false);
+        else if (typingField(document.activeElement)) setKeyboard(true);
+      });
+      window.addEventListener('orientationchange', () => { fullHeight = 0; });
+    }
+  }
 
   // Run work when the browser is idle (falls back to a short timeout on Safari)
   const whenIdle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 200 }) : setTimeout(fn, 16));
@@ -122,6 +144,7 @@
       const job = {};
       celebrate.job = job;
       window.Receipt.render(receipt).then((canvas) => {
+        saveReceiptPng(canvas, receipt); // every closed sale keeps a copy of its receipt, printed or not
         if (celebrate.job !== job) return;
         celebrateReceipt = { canvas };
         printBtn.disabled = false;
@@ -849,10 +872,28 @@
     setComboActive(q.trim() && comboItems.length ? 0 : -1);
   }
 
+  // The list ends just above the keyboard, so every option can be reached by scrolling the list itself.
+  function fitCombo() {
+    if (comboList.hidden) return;
+    const vv = window.visualViewport;
+    const visibleBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const room = visibleBottom - comboInput.getBoundingClientRect().bottom - 20;
+    comboList.style.maxHeight = `${Math.max(150, Math.min(280, room))}px`;
+  }
+  window.visualViewport?.addEventListener('resize', fitCombo);
+  window.addEventListener('scroll', fitCombo, { passive: true });
+
   function openCombo() {
     renderCombo();
     comboList.hidden = false;
     comboInput.setAttribute('aria-expanded', 'true');
+    fitCombo();
+  }
+  // Phones: bring the client box to the top of the screen, leaving room for the list above the keyboard.
+  if (touchScreen) {
+    comboInput.addEventListener('focus', () => setTimeout(() => {
+      comboInput.closest('.panel').scrollIntoView({ block: 'start', behavior: reducedMotion() ? 'auto' : 'smooth' });
+    }, 300));
   }
   function closeCombo() {
     comboList.hidden = true;
@@ -1122,7 +1163,7 @@
       print.setAttribute('aria-label', `Imprimir recibo #${r.id}`);
       print.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-print"/></svg>Recibo';
       print.addEventListener('click', () => reprintReceipt(r, print));
-      top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`), print);
+      top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`));
       const mid = el('div', 'row');
       mid.append(el('span', 'row-name', r.client_name), el('span', 'row-amount', fmtMoney(Number(r.amount))));
       const meta = el('div', 'row-meta', [
@@ -1132,7 +1173,9 @@
         `${r.days_per_week}x/sem`,
         `até ${fmtDate(parseISODate(r.plan_end))}`,
       ].join(' · '));
-      li.append(top, mid, meta);
+      const bottom = el('div', 'row row-bottom');
+      bottom.append(meta, print);
+      li.append(top, mid, bottom);
       return li;
     }, el('li', 'muted', 'Nenhuma venda nesse período. Bora vender!'));
   }
@@ -1164,6 +1207,16 @@
       notes: s.notes || '',
       signature: s.signature || '',
     };
+  }
+
+  // Downloads the receipt exactly as it goes to the printer: recibo-6518_09-11-2026_15h42.png
+  function saveReceiptPng(canvas, r) {
+    const [date, time = ''] = r.when.split(' ');
+    const name = `recibo-${r.number || 'sem-numero'}_${date.replace(/\//g, '-')}_${time.replace(':', 'h')}.png`;
+    canvas.toBlob((blob) => {
+      if (blob) download(blob, name);
+      else console.error('Receipt PNG not created');
+    }, 'image/png');
   }
 
   const printModal = $('#print-modal');

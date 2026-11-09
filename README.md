@@ -79,6 +79,7 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
   - The first time, Chrome shows the list of paired devices: pick the printer. That device remembers it, so after that it prints with one tap.
   - The receipt is sent as a black-and-white image in ESC/POS, the standard command language of thermal printers (`js/printer.js`). Bluetooth "classic" printers go through Web Serial; printers that only speak Bluetooth Low Energy can be picked under **Impressora não aparece na lista?** in the error window.
   - If it doesn't print, a window says why (Chrome too old, printer not paired, off or out of range) with **Tentar de novo** and **Escolher outra impressora**.
+  - Every closed sale also downloads its receipt image to the device (`recibo-6518_09-11-2026_15h42.png`), exactly as it goes to the printer, whether or not it was printed. The first time, Chrome may ask to allow the site to download multiple files: allow it.
   - Anderson can reprint any receipt in **Histórico** (**Recibo** button on each sale). Both logins get the receipt number through the `add_sale()` database function, which returns only the new sale's number and time. Without `007_receipt.sql` the sale still saves, but the Professor's receipt prints without a number.
 - All dates are shown as dd/MM/yyyy.
 - Free Supabase projects pause after **7 days without use**. If that happens (e.g. holidays), log into Supabase and click **Restore**; no data is lost.
