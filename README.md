@@ -8,7 +8,7 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 | Login | Can do |
 |---|---|
 | **Dono** (owner) | Register sales, manage clients, see history, values and totals |
-| **Professor** (teacher) | Register sales and manage clients. Cannot read any sale back (enforced by the database, not just hidden in the UI) |
+| **Professor** (teacher) | Register sales and manage clients. Cannot read any sale back (enforced by the database, not just hidden in the UI), except the receipt number and time of the sale just registered, for printing |
 
 ## Setup (one time)
 
@@ -21,7 +21,7 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 2. Paste all of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 
 ### 2b. Updates (only if you ran `schema.sql` before these files existed)
-Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password), [`006_wipe.sql`](supabase/006_wipe.sql) (Apagar todos os dados).
+Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password), [`006_wipe.sql`](supabase/006_wipe.sql) (Apagar todos os dados), [`007_receipt.sql`](supabase/007_receipt.sql) (receipt number on the Professor's printed receipts).
 
 ### 3. Block public sign-ups (important)
 The site's key is public, so nobody else must be able to create an account.
@@ -75,6 +75,7 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
 - **Senhas** in Configurações (Anderson only): change Anderson's or the Professor's password. Every change asks for confirmation with Anderson's current password. Changing the Professor password signs that login out everywhere: open screens keep working for up to about 1 hour, then must log in with the new password. The database function can only change the teacher login, never any other account.
 - **Configurações** (Anderson only): database size against the free plan's 500 MB, space used by sales and clients, and a growth forecast from the last 90 days. It also lists the other free-plan limits. Bandwidth (5 GB/month) can't be measured from the app because the Supabase usage API needs a secret key; check it in the Supabase dashboard (linked on the screen).
 - **Histórico** filters: Hoje, Ontem, Semana passada (previous Monday–Sunday), Mês atual, Mês passado, Últimos 6 meses, Último ano, or a custom date range. Long-press a filter to see which dates it covers.
+- **Imprimir recibo**: after "Fechar venda" the celebration screen has an **Imprimir recibo** button (it then stays open until **Bora!**). It makes a receipt image for the 58 mm thermal printer with everything about the sale: number, date and time, client and CPF, plan, days per week, class time, start and due date, payment method, total, observação and who attended, plus the gym's address and WhatsApp. It opens the phone's share menu: choose **Mini Impressora**, which prints it over Bluetooth like today. If the phone has no share menu, the image is downloaded so it can be opened in Mini Impressora. Anderson can reprint any receipt in **Histórico** (**Recibo** button on each sale). Both logins get the receipt number through the `add_sale()` database function, which returns only the new sale's number and time. Without `007_receipt.sql` the sale still saves, but the Professor's receipt prints without a number.
 - All dates are shown as dd/MM/yyyy.
 - Free Supabase projects pause after **7 days without use**. If that happens (e.g. holidays), log into Supabase and click **Restore**; no data is lost.
 

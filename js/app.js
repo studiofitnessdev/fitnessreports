@@ -104,10 +104,34 @@
     'Sem dor, sem ganho!', 'É hora do show!', 'Ninguém segura!', 'Bora pra cima!',
   ];
   let celebrateTimer;
-  function celebrate(sub) {
+  let celebrateReceipt = null; // { file } once the receipt image is ready; null while preparing
+  // With a receipt to print, the overlay stays until "Bora!" (no auto-close, backdrop taps ignored)
+  // so the print button can't disappear before it's used.
+  function celebrate(sub, receipt) {
     const box = $('#celebrate');
     $('#celebrate-phrase').textContent = PHRASES[Math.floor(Math.random() * PHRASES.length)];
     $('#celebrate-sub').textContent = sub;
+    const printBtn = $('#celebrate-print');
+    celebrateReceipt = null;
+    box.dataset.sticky = receipt ? '1' : '';
+    printBtn.hidden = !receipt;
+    if (receipt) {
+      // Render now, not on tap: sharing must start right inside the tap, before the browser's
+      // "user just tapped" window expires.
+      printBtn.disabled = true;
+      $('#celebrate-print-label').textContent = 'Preparando recibo…';
+      const job = {};
+      celebrate.job = job;
+      receiptFile(receipt).then((file) => {
+        if (celebrate.job !== job) return;
+        celebrateReceipt = { file };
+        printBtn.disabled = false;
+        $('#celebrate-print-label').textContent = 'Imprimir recibo';
+      }).catch((err) => {
+        console.error(err);
+        if (celebrate.job === job) $('#celebrate-print-label').textContent = 'Recibo indisponível';
+      });
+    }
 
     const confetti = $('#confetti');
     confetti.replaceChildren();
@@ -128,14 +152,23 @@
     box.hidden = false;
     try { navigator.vibrate?.([40, 60, 40]); } catch (_) { /* not supported */ }
     clearTimeout(celebrateTimer);
-    celebrateTimer = setTimeout(closeCelebrate, 3500);
+    if (!receipt) celebrateTimer = setTimeout(closeCelebrate, 3500);
   }
   function closeCelebrate() {
     clearTimeout(celebrateTimer);
+    celebrate.job = null;
+    celebrateReceipt = null;
     $('#celebrate').hidden = true;
     $('#confetti').replaceChildren();
   }
-  $('#celebrate').addEventListener('click', closeCelebrate);
+  $('#celebrate').addEventListener('click', (e) => {
+    if ($('#celebrate').dataset.sticky && !e.target.closest('#celebrate-ok')) return;
+    closeCelebrate();
+  });
+  $('#celebrate-print').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (celebrateReceipt) shareReceipt(celebrateReceipt.file);
+  });
 
   // ───────────────────────── Supabase ─────────────────────────
   const configured = CFG && !CFG.supabaseUrl.includes('YOUR-') && !CFG.supabaseKey.includes('YOUR-');
@@ -954,16 +987,22 @@
         signature: $('#sale-signature').value.trim() || null,
       };
 
-      // The teacher has no permission to read sales, so only the owner asks for the new number back.
-      let sub = clientName;
-      if (state.role === 'owner') {
-        const { data, error } = await sb.from('sales').insert(row).select('id').single();
+      // add_sale() returns the receipt number to both logins (the teacher can't read sales back).
+      // Without supabase/007_receipt.sql: plain insert, and only the owner gets the number.
+      let saved = {};
+      const rpc = await sb.rpc('add_sale', { sale: row });
+      if (!rpc.error) saved = rpc.data || {};
+      else if (rpc.error.code !== 'PGRST202') throw rpc.error;
+      else if (state.role === 'owner') {
+        const { data, error } = await sb.from('sales').insert(row).select('id, created_at').single();
         if (error) throw error;
-        sub = `#${data.id} · ${clientName}`;
+        saved = data;
       } else {
         const { error } = await sb.from('sales').insert(row);
         if (error) throw error;
       }
+      const sub = saved.id ? `#${saved.id} · ${clientName}` : clientName;
+      const receipt = receiptData({ ...row, id: saved.id, created_at: saved.created_at, cpf: client.cpf });
       historyCache.clear();
       // Show the new plan in Clientes right away (the server copy refreshes in the background).
       if (state.subs) {
@@ -975,7 +1014,7 @@
       }
       loadSubscriptions();
       saleForm.reset();
-      celebrate(sub);
+      celebrate(sub, receipt);
     } catch (err) {
       console.error(err);
       showError(errBox, 'Erro ao salvar a venda. Verifique a internet e tente novamente.');
@@ -1079,7 +1118,12 @@
     renderList($('#history-list'), rows, (r) => {
       const li = el('li');
       const top = el('div', 'row');
-      top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`));
+      const print = el('button', 'row-print');
+      print.type = 'button';
+      print.setAttribute('aria-label', `Imprimir recibo #${r.id}`);
+      print.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-print"/></svg>Recibo';
+      print.addEventListener('click', () => reprintReceipt(r, print));
+      top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`), print);
       const mid = el('div', 'row');
       mid.append(el('span', 'row-name', r.client_name), el('span', 'row-amount', fmtMoney(Number(r.amount))));
       const meta = el('div', 'row-meta', [
@@ -1100,6 +1144,58 @@
     address: 'Av. Henrique Munhoz Garcia, 327 · Jd. Boa Esperança',
     logo: 'img/emblem.svg', // swap for the real logo (PNG/SVG) when it arrives
   };
+
+  // ───────────────────────── Receipt (58 mm thermal printer, via the Mini Impressora app) ─────────────────────────
+  // The receipt is an image (js/receipt.js) handed to the phone's share sheet: pick "Mini Impressora"
+  // and it prints over Bluetooth like any other image. Without a share sheet the image is downloaded.
+  function receiptData(s) {
+    return {
+      gym: { phone: GYM.phone, address: GYM.address.split(' · ') },
+      number: s.id ? String(s.id) : '',
+      when: fmtDateTime(s.created_at ? new Date(s.created_at) : new Date()),
+      client: s.client_name,
+      cpf: s.cpf ? fmtCpf(s.cpf) : '',
+      plan: PLAN_LABEL[s.plan] || s.plan,
+      days: s.days_per_week === '4+' ? '4 ou mais' : s.days_per_week,
+      time: s.class_time,
+      start: fmtDate(parseISODate(s.plan_start)),
+      end: fmtDate(parseISODate(s.plan_end)),
+      payment: PAYMENT_LABEL[s.payment_method] || s.payment_method,
+      amount: fmtMoney(Number(s.amount)),
+      notes: s.notes || '',
+      signature: s.signature || '',
+    };
+  }
+
+  const receiptFile = async (data) => new File([await window.Receipt.render(data)],
+    `recibo${data.number ? `-${data.number}` : ''}_${data.when.slice(0, 10).replace(/\//g, '-')}.png`, { type: 'image/png' });
+
+  // Must be called straight from a tap (the share sheet needs it).
+  async function shareReceipt(file) {
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] }); // files only: some apps drop the image when text comes along
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') return; // closed the share sheet
+        console.warn('Share failed, downloading instead', err);
+      }
+    }
+    download(file, file.name);
+    toast('Recibo baixado. Abra a imagem nos Downloads pelo Mini Impressora.');
+  }
+
+  async function reprintReceipt(sale, btn) {
+    btn.disabled = true;
+    try {
+      await shareReceipt(await receiptFile(receiptData({ ...sale, cpf: sale.clients?.cpf })));
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao gerar o recibo.');
+    } finally {
+      btn.disabled = false;
+    }
+  }
 
   const fileDate = (d) => fmtDate(d).replace(/\//g, '-');
   function exportFileName(h, ext) {

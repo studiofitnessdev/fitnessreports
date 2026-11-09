@@ -406,6 +406,16 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
   color: #fff;
 }
 .row-meta { font-size: .85rem; color: var(--muted); margin-top: 6px; }
+/* Reprint the receipt (Histórico) */
+.row-print {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  margin: -6px -4px -6px 0; padding: 6px 10px;
+  font: inherit; font-size: .8rem; font-weight: 600; color: var(--muted);
+  background: rgba(255, 255, 255, .06); border: 1px solid var(--line); border-radius: 999px; cursor: pointer;
+}
+.row-print .ico { color: var(--red-bright); width: 16px; height: 16px; }
+.row-print:active { background: rgba(255, 45, 31, .35); color: #fff; }
+.row-print:disabled { opacity: .5; }
 
 /* Scoreboard */
 .totalbar {
@@ -562,6 +572,10 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
   font-size: 1.35rem; text-transform: uppercase; letter-spacing: .03em; color: var(--red-bright);
 }
 .celebrate-sub { color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+.celebrate-print { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 220px; }
+.celebrate-print[hidden] { display: none; }
+.celebrate-print .ico { color: var(--red-bright); }
+.celebrate-card .btn-hero { min-width: 220px; }
 
 .confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .confetti i {

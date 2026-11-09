@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=72f4e12b">
+  <link rel="stylesheet" href="css/style.css?v=0bbf1c7e">
 </head>
 <body>
 
@@ -43,6 +43,7 @@
       <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
       <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14.5v2.5"/></symbol>
+      <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8V3h10v5"/><rect x="3" y="8" width="18" height="9" rx="2"/><path d="M7 14h10v7H7z"/></symbol>
       <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.7-.3 2-1.3 3.3-2.6 3.8.4-3.3-.8-6.3-3.8-8.3.3 3.6-1.6 5.6-3.3 7.6C4.5 11.1 5 12.5 5 15.2 5 19.2 8 22 12 22z"/></symbol>
     </defs>
   </svg>
@@ -359,6 +360,7 @@
       <div class="celebrate-title">Venda<br>fechada!</div>
       <div class="celebrate-phrase" id="celebrate-phrase"></div>
       <div class="celebrate-sub" id="celebrate-sub"></div>
+      <button type="button" class="btn btn-ghost celebrate-print" id="celebrate-print" hidden><svg class="ico"><use href="#i-print"/></svg> <span id="celebrate-print-label">Imprimir recibo</span></button>
       <button type="button" class="btn btn-hero" id="celebrate-ok">Bora! <svg class="ico chev" aria-hidden="true"><use href="#i-chevs"/></svg></button>
     </div>
   </div>
@@ -424,7 +426,8 @@
   <div class="toast" id="toast" hidden></div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+  <script defer src="js/receipt.js?v=6a1c35ca"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=15b27fb8"></script>
+  <script defer src="js/app.js?v=c6c29645"></script>
 </body>
 </html>
