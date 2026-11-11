@@ -1224,14 +1224,11 @@
   let printing = false;
 
   function printErrorText(err) {
-    const v = window.Printer.chromeVersion();
-    const updateChrome = v ? `Atualize o Google Chrome pela Play Store: este é o ${v}, precisa ser 137 ou mais novo.` : 'Abra o app no Google Chrome, no Android.';
     switch (err.name) {
       case 'NotSupported':
-        return `Este navegador não imprime direto na impressora. ${updateChrome}`;
-      case 'NotFoundError': // printer list closed without picking, or nothing listed
-        return 'Nenhuma impressora escolhida. Ela precisa estar ligada e pareada no Bluetooth do aparelho (Configurações → Bluetooth).'
-          + (window.Printer.hasSerial() ? '' : ` Se ela não aparece na lista: ${updateChrome}`);
+        return 'Este navegador não imprime direto na impressora. Abra o app no Google Chrome, no Android.';
+      case 'NotFoundError': // printer list closed without picking, nothing listed, or Bluetooth off
+        return 'Nenhuma impressora escolhida. Confira se o Bluetooth do aparelho está ligado e se a impressora está ligada e perto.';
       case 'SecurityError':
       case 'NotAllowedError':
         return 'O navegador não deixou abrir a impressora. Toque em Tentar de novo.';
@@ -1258,8 +1255,6 @@
       $('#print-modal-text').textContent = printErrorText(err);
       $('#print-modal-retry').hidden = err.name === 'NotSupported';
       $('#print-modal-choose').hidden = err.name === 'NotSupported';
-      // Bluetooth classic picked by default; offer BLE when the printer didn't show up in that list.
-      $('#print-modal-ble').hidden = !(window.Printer.hasBle() && window.Printer.hasSerial() && err.name !== 'NotSupported');
       printModal.showModal();
     } finally {
       printing = false;
@@ -1274,8 +1269,7 @@
   $('#print-modal-close').addEventListener('click', () => printModal.close());
   printModal.addEventListener('click', (e) => { if (e.target === printModal) printModal.close(); }); // tap on backdrop
   $('#print-modal-retry').addEventListener('click', () => retryPrint({}));
-  $('#print-modal-choose').addEventListener('click', () => retryPrint({ choose: true, useMode: window.Printer.hasSerial() ? 'serial' : 'ble' }));
-  $('#print-modal-ble').addEventListener('click', () => retryPrint({ choose: true, useMode: 'ble' }));
+  $('#print-modal-choose').addEventListener('click', () => retryPrint({ choose: true }));
 
   async function reprintReceipt(sale, btn) {
     let canvas;
