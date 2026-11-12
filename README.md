@@ -7,8 +7,8 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 
 | Login | Can do |
 |---|---|
-| **Dono** (owner) | Register sales, manage clients, see history, values and totals |
-| **Professor** (teacher) | Register sales and manage clients. Cannot read any sale back (enforced by the database, not just hidden in the UI), except the receipt number and time of the sale just registered, for printing |
+| **Dono** (owner) | Register sales, manage clients, see history, values and totals, delete sales |
+| **Professor** (teacher) | Register sales, manage clients, see a history **without values** and delete sales. Cannot read any sale value back (enforced by the database, not just hidden in the UI): the history shows only number, date, client and plan details, and the receipt number and time of the sale just registered come back for printing |
 
 ## Setup (one time)
 
@@ -21,7 +21,7 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 2. Paste all of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 
 ### 2b. Updates (only if you ran `schema.sql` before these files existed)
-Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password), [`006_wipe.sql`](supabase/006_wipe.sql) (Apagar todos os dados), [`007_receipt.sql`](supabase/007_receipt.sql) (receipt number on the Professor's printed receipts).
+Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password), [`006_wipe.sql`](supabase/006_wipe.sql) (Apagar todos os dados), [`007_receipt.sql`](supabase/007_receipt.sql) (receipt number on the Professor's printed receipts), [`008_delete_sale.sql`](supabase/008_delete_sale.sql) (Professor's Histórico and Apagar venda).
 
 ### 3. Block public sign-ups (important)
 The site's key is public, so nobody else must be able to create an account.
@@ -74,6 +74,8 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
   - Restoring needs SQL, because ids are `generated always`: import the CSVs into temporary tables, then `insert into public.clients … overriding system value select … ;` (clients first, then sales).
 - **Senhas** in Configurações (Anderson only): change Anderson's or the Professor's password. Every change asks for confirmation with Anderson's current password. Changing the Professor password signs that login out everywhere: open screens keep working for up to about 1 hour, then must log in with the new password. The database function can only change the teacher login, never any other account.
 - **Configurações** (Anderson only): database size against the free plan's 500 MB, space used by sales and clients, and a growth forecast from the last 90 days. It also lists the other free-plan limits. Bandwidth (5 GB/month) can't be measured from the app because the Supabase usage API needs a secret key; check it in the Supabase dashboard (linked on the screen).
+- **Histórico** for the Professor: the same list and filters, but without amount, payment method, total, exports or receipt reprint. It comes from the `staff_history()` database function, which never returns values.
+- **Apagar venda** in Histórico (both logins): the trash button on each sale deletes it after a confirmation, whoever registered it. The client's plan status in Clientes is recomputed from their other sales (**Sem plano** if none is left). The receipt number is not reused. It goes through the `delete_sale()` database function; without `008_delete_sale.sql` only Anderson can delete.
 - **Histórico** filters: Hoje, Ontem, Semana passada (previous Monday–Sunday), Mês atual, Mês passado, Últimos 6 meses, Último ano, or a custom date range. Long-press a filter to see which dates it covers.
 - **Imprimir recibo**: after "Fechar venda" the celebration screen has an **Imprimir recibo** button (it then stays open until **Bora!**). It prints straight to the 58 mm Bluetooth thermal printer, with no other app, a receipt with everything about the sale: number, date and time, client and CPF, plan, days per week, class time, start and due date, payment method, total, observação and who attended, plus the gym's address and WhatsApp.   - Needs **Google Chrome on Android** (other browsers and iPhone can't talk to Bluetooth printers). The device's Bluetooth must be on and the printer on and nearby; it doesn't need to be paired in the Bluetooth settings.
   - The first print after opening the app shows Chrome's list of nearby Bluetooth devices: pick the printer. It stays connected while the app is open, so later receipts print with one tap.

@@ -229,6 +229,12 @@
     $('#view-login').hidden = false;
     $('#login-password').value = '';
     showError($('#login-error'), msg || '');
+    // Never leave one login's history (with values) on screen or in memory for the next login.
+    historyCache.clear();
+    state.history = null;
+    state.historyReq = null;
+    listJobs.delete($('#history-list'));
+    $('#history-list').replaceChildren();
   }
 
   $('#login-form').addEventListener('submit', async (e) => {
@@ -291,12 +297,12 @@
   const TITLES = { sale: 'Nova venda', history: 'Histórico', clients: 'Clientes', settings: 'Configurações' };
 
   function showView(name) {
-    if ((name === 'history' || name === 'settings') && state.role !== 'owner') name = 'sale';
+    if (name === 'settings' && state.role !== 'owner') name = 'sale';
     for (const v of Object.keys(TITLES)) $(`#view-${v}`).hidden = v !== name;
     $$('.bottomnav [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
     $('#view-title').textContent = TITLES[name];
-    $('#totalbar').hidden = name !== 'history';
-    if (name === 'history') { loadHistory(); whenIdle(() => loadPdfLibs().catch(() => {})); }
+    $('#totalbar').hidden = name !== 'history' || state.role !== 'owner';
+    if (name === 'history') { loadHistory(); if (state.role === 'owner') whenIdle(() => loadPdfLibs().catch(() => {})); }
     if (name === 'settings') {
       loadUsage();
       $$('.pw-form').forEach((f) => { f.reset(); f.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid')); });
@@ -1063,7 +1069,9 @@
     }
   });
 
-  // ───────────────────────── History (owner only) ─────────────────────────
+  // ───────────────────────── History ─────────────────────────
+  // Anderson reads the sales table (values, totals, exports). The Professor gets the same list without
+  // any values through staff_history() (supabase/008_delete_sale.sql). Both can delete a sale.
   const RANGE_LABEL = {
     today: 'Hoje', yesterday: 'Ontem', week: 'Semana passada', month: 'Mês atual',
     lastMonth: 'Mês passado', '6m': 'Últimos 6 meses', '1y': 'Último ano', custom: 'Período',
@@ -1118,7 +1126,7 @@
       return;
     }
 
-    const ck = `${range[0].toISOString()}|${range[1].toISOString()}`;
+    const ck = `${state.role}|${range[0].toISOString()}|${range[1].toISOString()}`;
     state.historyReq = ck;
     const cached = historyCache.get(ck);
     if (cached) renderHistory(key, range, cached.rows);
@@ -1131,15 +1139,21 @@
 
     let rows;
     try {
-      rows = await fetchAll(() => sb.from('sales')
-        .select('id, created_at, client_name, amount, payment_method, class_time, plan, days_per_week, plan_start, plan_end, notes, signature, clients(cpf)')
-        .gte('created_at', range[0].toISOString())
-        .lt('created_at', range[1].toISOString())
+      rows = await fetchAll(() => (state.role === 'owner'
+        ? sb.from('sales')
+          .select('id, created_at, client_name, amount, payment_method, class_time, plan, days_per_week, plan_start, plan_end, notes, signature, clients(cpf)')
+          .gte('created_at', range[0].toISOString())
+          .lt('created_at', range[1].toISOString())
+        : sb.rpc('staff_history', { from_ts: range[0].toISOString(), to_ts: range[1].toISOString() }))
         .order('created_at', { ascending: false })
         .order('id', { ascending: false }));
     } catch (err) {
       console.error(err);
-      if (!cached && state.historyReq === ck) status.textContent = 'Erro ao carregar o histórico.';
+      if (!cached && state.historyReq === ck) {
+        status.textContent = err.code === 'PGRST202'
+          ? 'Falta configurar: rode supabase/008_delete_sale.sql no Supabase.'
+          : 'Erro ao carregar o histórico.';
+      }
       return;
     }
     historyCache.set(ck, { rows, at: Date.now() });
@@ -1149,10 +1163,11 @@
   }
 
   function renderHistory(key, range, rows) {
+    const isOwner = state.role === 'owner';
     const total = rows.reduce((sum, r) => sum + Number(r.amount), 0);
     $('#total-value').textContent = fmtMoney(total);
     state.history = { key, range, rows, total };
-    $('#export-bar').hidden = !rows.length || state.role !== 'owner';
+    $('#export-bar').hidden = !rows.length || !isOwner;
     $('#history-status').textContent = `${rows.length === 1 ? '1 venda' : `${rows.length} vendas`} · ${fmtRange(range)}`;
 
     renderList($('#history-list'), rows, (r) => {
@@ -1165,20 +1180,86 @@
       print.addEventListener('click', () => reprintReceipt(r, print));
       top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`));
       const mid = el('div', 'row');
-      mid.append(el('span', 'row-name', r.client_name), el('span', 'row-amount', fmtMoney(Number(r.amount))));
+      mid.append(el('span', 'row-name', r.client_name));
+      if (isOwner) mid.append(el('span', 'row-amount', fmtMoney(Number(r.amount))));
       const meta = el('div', 'row-meta', [
         PLAN_LABEL[r.plan],
-        PAYMENT_LABEL[r.payment_method],
+        isOwner && PAYMENT_LABEL[r.payment_method],
         r.class_time,
         `${r.days_per_week}x/sem`,
         `até ${fmtDate(parseISODate(r.plan_end))}`,
-      ].join(' · '));
+      ].filter(Boolean).join(' · '));
+      const del = el('button', 'row-print row-del');
+      del.type = 'button';
+      del.setAttribute('aria-label', `Apagar venda #${r.id}`);
+      del.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg>';
+      del.addEventListener('click', () => askDeleteSale(r));
+      const btns = el('span', 'row-actions');
+      if (isOwner) btns.append(print); // the receipt has the amount: Anderson only
+      btns.append(del);
       const bottom = el('div', 'row row-bottom');
-      bottom.append(meta, print);
+      bottom.append(meta, btns);
       li.append(top, mid, bottom);
       return li;
     }, el('li', 'muted', 'Nenhuma venda nesse período. Bora vender!'));
   }
+
+  // Delete one sale (both logins, whoever registered it) through delete_sale() (supabase/008_delete_sale.sql).
+  // The client's plan status is recomputed from their other sales by client_subscriptions().
+  const delModal = $('#del-modal');
+  let delSale = null;
+  function askDeleteSale(r) {
+    delSale = r;
+    $('#del-modal-heading').textContent = `Apagar a venda #${r.id}?`;
+    const items = [
+      ['Cliente', r.client_name],
+      ['Data', fmtDateTime(new Date(r.created_at))],
+      ['Plano', `${PLAN_LABEL[r.plan]} · ${fmtDate(parseISODate(r.plan_start))} a ${fmtDate(parseISODate(r.plan_end))}`],
+    ];
+    if (state.role === 'owner') items.push(['Valor', `${fmtMoney(Number(r.amount))} · ${PAYMENT_LABEL[r.payment_method]}`]);
+    $('#del-modal-summary').replaceChildren(...items.flatMap(([k, v]) => [el('dt', null, k), el('dd', null, v)]));
+    showError($('#del-modal-error'), '');
+    delModal.showModal();
+  }
+  $('#del-modal-cancel').addEventListener('click', () => delModal.close());
+  delModal.addEventListener('click', (e) => { if (e.target === delModal) delModal.close(); }); // tap on backdrop
+  delModal.addEventListener('close', () => { delSale = null; });
+
+  $('#del-modal-ok').addEventListener('click', async () => {
+    const r = delSale;
+    if (!r) return delModal.close();
+    const btn = $('#del-modal-ok');
+    btn.disabled = true;
+    try {
+      let deleted;
+      const rpc = await sb.rpc('delete_sale', { sale_id: r.id });
+      if (!rpc.error) deleted = rpc.data;
+      else if (rpc.error.code !== 'PGRST202') throw rpc.error;
+      else if (state.role === 'owner') { // without 008: Anderson can still delete directly
+        const { data, error } = await sb.from('sales').delete().eq('id', r.id).select('id');
+        if (error) throw error;
+        deleted = data.length;
+      } else {
+        return showError($('#del-modal-error'), 'Falta configurar: rode supabase/008_delete_sale.sql no Supabase.');
+      }
+      historyCache.clear();
+      loadSubscriptions();
+      if (!deleted) { // already deleted on another phone, or not allowed (the database deletes nothing)
+        delModal.close();
+        loadHistory();
+        return toast(`A venda #${r.id} não foi apagada (talvez já tenha sido apagada).`);
+      }
+      delModal.close();
+      const h = state.history;
+      if (h) renderHistory(h.key, h.range, h.rows.filter((x) => x.id !== r.id));
+      toast(`Venda #${r.id} apagada.`);
+    } catch (err) {
+      console.error(err);
+      showError($('#del-modal-error'), 'Não foi possível apagar. Verifique a internet e tente de novo.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // ───────────────────────── Export (CSV / PDF) ─────────────────────────
   const GYM = {

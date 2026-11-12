@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=b12c4678">
+  <link rel="stylesheet" href="css/style.css?v=41e52318">
 </head>
 <body>
 
@@ -44,6 +44,7 @@
       <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
       <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3M12 14.5v2.5"/></symbol>
       <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8V3h10v5"/><rect x="3" y="8" width="18" height="9" rx="2"/><path d="M7 14h10v7H7z"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 6.5h16M9.5 6.5V4h5v2.5M6.5 6.5l1 14h9l1-14M10 10.5v6.5M14 10.5v6.5"/></symbol>
       <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.7-.3 2-1.3 3.3-2.6 3.8.4-3.3-.8-6.3-3.8-8.3.3 3.6-1.6 5.6-3.3 7.6C4.5 11.1 5 12.5 5 15.2 5 19.2 8 22 12 22z"/></symbol>
     </defs>
   </svg>
@@ -345,7 +346,7 @@
 
     <nav class="bottomnav">
       <button type="button" data-view="sale" class="active"><svg class="ico"><use href="#i-sale"/></svg><span>Venda</span></button>
-      <button type="button" data-view="history" data-owner-only><svg class="ico"><use href="#i-chart"/></svg><span>Histórico</span></button>
+      <button type="button" data-view="history"><svg class="ico"><use href="#i-chart"/></svg><span>Histórico</span></button>
       <button type="button" data-view="clients"><svg class="ico"><use href="#i-users"/></svg><span>Clientes</span></button>
       <button type="button" data-view="settings" data-owner-only><svg class="ico"><use href="#i-gear"/></svg><span>Configurações</span></button>
       <button type="button" id="logout"><svg class="ico"><use href="#i-power"/></svg><span>Sair</span></button>
@@ -438,12 +439,26 @@
     </div>
   </dialog>
 
+  <!-- Apagar uma venda (Histórico) -->
+  <dialog class="modal" id="del-modal" aria-labelledby="del-modal-title">
+    <div class="panel">
+      <div class="panel-head" id="del-modal-title"><span class="step"><svg class="ico"><use href="#i-trash"/></svg></span> <span id="del-modal-heading">Apagar venda?</span></div>
+      <dl class="del-summary" id="del-modal-summary"></dl>
+      <p class="pw-modal-text del-warn">Esse plano deixa de contar para o cliente em <strong>Clientes</strong>. Não dá para desfazer.</p>
+      <p class="error" id="del-modal-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="del-modal-cancel">Cancelar</button>
+        <button type="button" class="btn btn-hero" id="del-modal-ok">Apagar venda</button>
+      </div>
+    </div>
+  </dialog>
+
   <div class="toast" id="toast" hidden></div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
   <script defer src="js/printer.js?v=5f89d99f"></script>
   <script defer src="js/receipt.js?v=c1b1b2cd"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=869aae9e"></script>
+  <script defer src="js/app.js?v=e57d28a6"></script>
 </body>
 </html>
