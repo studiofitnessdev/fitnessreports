@@ -1304,19 +1304,27 @@
   let printJob = null; // { canvas, btn } — the receipt the modal's buttons retry
   let printing = false;
 
-  function printErrorText(err) {
+  const BUSY = 'Ela some da lista quando está conectada a outro celular, a outro app (como o Mini Impressora) ou a outra aba deste app aberta: feche esses.';
+  function printErrorText(err, opts) {
+    const serial = (opts.via || window.Printer.saved()?.via) === 'serial';
     switch (err.name) {
       case 'NotSupported':
         return 'Este navegador não imprime direto na impressora. Abra o app no Google Chrome, no Android.';
-      case 'NotFoundError': // printer list closed without picking, nothing listed, or Bluetooth off
-        return 'Nenhuma impressora escolhida. Confira se o Bluetooth do aparelho está ligado e se a impressora está ligada e perto.';
+      case 'NoSerial':
+        return 'Este Chrome não imprime em impressora pareada. Atualize o Google Chrome pela Play Store, ou toque em Escolher outra impressora.';
+      case 'NeedsTap':
+        return 'Toque em Tentar de novo para escolher a impressora.';
+      case 'NotFoundError': // list closed without picking, printer not listed, or Bluetooth off
+        return serial
+          ? 'Nenhuma impressora escolhida. Ela precisa estar ligada e pareada no Bluetooth do celular (Configurações → Bluetooth).'
+          : `A impressora não foi escolhida ou não apareceu na lista. Confira se o Bluetooth do celular e a impressora estão ligados. ${BUSY}`;
       case 'SecurityError':
       case 'NotAllowedError':
         return 'O navegador não deixou abrir a impressora. Toque em Tentar de novo.';
       case 'NoPrinterService':
-        return 'Esse aparelho Bluetooth não aceita impressão. Escolha outra impressora.';
-      default:
-        return 'Não deu para imprimir. Confira se a impressora está ligada, com papel e perto do aparelho, e tente de novo.';
+        return 'Esse aparelho Bluetooth não aceita impressão. Toque em Escolher outra impressora.';
+      default: // PrinterOff, NetworkError (connection lost)…
+        return `A impressora não respondeu. Confira se ela está ligada, com papel e perto do celular. ${BUSY.replace('Ela some da lista', 'Ela também não responde')}`;
     }
   }
 
@@ -1333,9 +1341,14 @@
     } catch (err) {
       console.error(err);
       $('#toast').hidden = true;
-      $('#print-modal-text').textContent = printErrorText(err);
+      const P = window.Printer;
+      const name = P.saved()?.name;
+      $('#print-modal-text').textContent = printErrorText(err, opts);
+      $('#print-modal-printer').textContent = name ? `Impressora salva: ${name}` : '';
+      $('#print-modal-printer').hidden = !name;
       $('#print-modal-retry').hidden = err.name === 'NotSupported';
-      $('#print-modal-choose').hidden = err.name === 'NotSupported';
+      $('#print-modal-choose').hidden = err.name === 'NotSupported' || !P.hasBle();
+      $('#print-modal-serial').hidden = err.name === 'NotSupported' || !P.hasSerial();
       printModal.showModal();
     } finally {
       printing = false;
@@ -1350,7 +1363,8 @@
   $('#print-modal-close').addEventListener('click', () => printModal.close());
   printModal.addEventListener('click', (e) => { if (e.target === printModal) printModal.close(); }); // tap on backdrop
   $('#print-modal-retry').addEventListener('click', () => retryPrint({}));
-  $('#print-modal-choose').addEventListener('click', () => retryPrint({ choose: true }));
+  $('#print-modal-choose').addEventListener('click', () => retryPrint({ choose: true, via: 'ble' }));
+  $('#print-modal-serial').addEventListener('click', () => retryPrint({ choose: true, via: 'serial' }));
 
   async function reprintReceipt(sale, btn) {
     let canvas;

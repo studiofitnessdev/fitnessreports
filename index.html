@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=41e52318">
+  <link rel="stylesheet" href="css/style.css?v=385030f0">
 </head>
 <body>
 
@@ -429,12 +429,14 @@
     <div class="panel">
       <div class="panel-head" id="print-modal-title"><span class="step"><svg class="ico"><use href="#i-print"/></svg></span> Não imprimiu</div>
       <p class="pw-modal-text" id="print-modal-text"></p>
+      <p class="pw-modal-text print-saved" id="print-modal-printer" hidden></p>
       <div class="actions">
         <button type="button" class="btn btn-ghost" id="print-modal-close">Fechar</button>
         <button type="button" class="btn btn-hero" id="print-modal-retry">Tentar de novo</button>
       </div>
       <div class="print-alts">
         <button type="button" class="btn btn-ghost btn-sm btn-block" id="print-modal-choose">Escolher outra impressora</button>
+        <button type="button" class="btn btn-ghost btn-sm btn-block" id="print-modal-serial">Usar impressora pareada (Bluetooth clássico)</button>
       </div>
     </div>
   </dialog>
@@ -456,9 +458,9 @@
   <div class="toast" id="toast" hidden></div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
-  <script defer src="js/printer.js?v=5f89d99f"></script>
+  <script defer src="js/printer.js?v=b81edba2"></script>
   <script defer src="js/receipt.js?v=c1b1b2cd"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=e57d28a6"></script>
+  <script defer src="js/app.js?v=5620d974"></script>
 </body>
 </html>
