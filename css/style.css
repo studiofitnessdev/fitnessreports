@@ -519,6 +519,9 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 #client-form { margin-bottom: 14px; }
 .list-clients li { display: flex; align-items: center; gap: 14px; cursor: pointer; transition: border-color .15s, transform .12s; }
 .list-clients li:active { transform: scale(.98); border-color: rgba(255, 45, 31, .5); }
+/* Invisible marker after the drawn clients: reaching it draws the next ones */
+.list li.list-sentinel { display: block; content-visibility: visible; height: 1px; margin-top: -10px; padding: 0; border: 0; background: none; box-shadow: none; pointer-events: none; }
+.list li.list-sentinel::before, .list li.list-sentinel::after { content: none; }
 .avatar {
   flex: 0 0 auto;
   display: grid; place-items: center;

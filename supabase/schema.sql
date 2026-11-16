@@ -161,23 +161,21 @@ revoke execute on function public.set_teacher_password(text) from public, anon;
 grant execute on function public.set_teacher_password(text) to authenticated;
 
 -- ─────────────────────────────────────────────
--- "Apagar todos os dados" (Configurações). Owner only; deletes only rows covered by the backup just taken.
+-- "Apagar todas as vendas" (Configurações). Owner only; deletes only the sales covered by the backup just taken.
+-- Clients are never deleted (max_client_id is kept only so older app versions still call it).
 -- ─────────────────────────────────────────────
 create or replace function public.wipe_data(max_sale_id bigint, max_client_id bigint)
 returns json
 language plpgsql security definer set search_path = public as $$
 declare
   sales_deleted int;
-  clients_deleted int;
 begin
   if not public.is_owner() then
     raise exception 'only the owner can wipe data' using errcode = '42501';
   end if;
   delete from public.sales where id <= coalesce(max_sale_id, 0);
   get diagnostics sales_deleted = row_count;
-  delete from public.clients where id <= coalesce(max_client_id, 0);
-  get diagnostics clients_deleted = row_count;
-  return json_build_object('sales', sales_deleted, 'clients', clients_deleted);
+  return json_build_object('sales', sales_deleted, 'clients', 0);
 end;
 $$;
 

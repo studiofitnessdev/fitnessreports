@@ -52,6 +52,7 @@
     return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
   };
   const normName = (s) => s.trim().replace(/\s+/g, ' ').toUpperCase();
+  const CPF_NONE = '00000000000'; // placeholder for clients registered without CPF (spreadsheet import)
 
   // ───────────────────────── Small UI helpers ─────────────────────────
   const el = (tag, className, text) => {
@@ -101,14 +102,34 @@
 
   // Render long lists in pieces: the first screenful right away, the rest in idle chunks,
   // so opening "Último ano" (thousands of rows) never freezes the screen.
+  // With { lazy: true } the rest is drawn only as the user scrolls near the end of the list
+  // (for long lists that have a search box, like Clientes).
   const listJobs = new WeakMap();
-  function renderList(listEl, items, makeItem, emptyNode) {
+  function renderList(listEl, items, makeItem, emptyNode, { lazy = false } = {}) {
     const job = {};
+    listJobs.get(listEl)?.observer?.disconnect();
     listJobs.set(listEl, job);
-    const FIRST = 40, CHUNK = 200;
+    const FIRST = 40, CHUNK = lazy ? 60 : 200;
     listEl.replaceChildren(...items.slice(0, FIRST).map(makeItem));
     if (!items.length && emptyNode) listEl.append(emptyNode);
     let i = FIRST;
+    if (lazy) {
+      if (i >= items.length || !window.IntersectionObserver) return;
+      const sentinel = el('li', 'list-sentinel');
+      sentinel.setAttribute('aria-hidden', 'true');
+      listEl.append(sentinel);
+      job.observer = new IntersectionObserver((entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        const frag = document.createDocumentFragment();
+        for (const it of items.slice(i, i + CHUNK)) frag.append(makeItem(it));
+        sentinel.before(frag);
+        i += CHUNK;
+        if (i >= items.length) { job.observer.disconnect(); sentinel.remove(); }
+        else { job.observer.unobserve(sentinel); job.observer.observe(sentinel); } // re-check: still in view after a big jump
+      }, { rootMargin: '1200px 0px' });
+      job.observer.observe(sentinel);
+      return;
+    }
     const next = () => {
       if (listJobs.get(listEl) !== job || i >= items.length) return;
       const frag = document.createDocumentFragment();
@@ -196,14 +217,22 @@
   const configured = CFG && !CFG.supabaseUrl.includes('YOUR-') && !CFG.supabaseKey.includes('YOUR-');
   const sb = configured ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey) : null;
 
+  // First page alone (most queries fit in it); if it's full, the next pages go out 4 at a time in parallel.
+  // The query needs a unique final sort key (e.g. id) so pages never overlap or skip rows.
+  const PARALLEL_PAGES = 4;
   async function fetchAll(buildQuery) {
-    const rows = [];
-    for (let from = 0; ; from += PAGE_SIZE) {
-      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+    const page = async (n) => {
+      const { data, error } = await buildQuery().range(n * PAGE_SIZE, (n + 1) * PAGE_SIZE - 1);
       if (error) throw error;
-      rows.push(...data);
-      if (data.length < PAGE_SIZE) return rows;
+      return data;
+    };
+    const rows = await page(0);
+    for (let n = 1; rows.length === n * PAGE_SIZE; n += PARALLEL_PAGES) {
+      const pages = await Promise.all(Array.from({ length: PARALLEL_PAGES }, (_, k) => page(n + k)));
+      for (const data of pages) rows.push(...data);
+      if (pages.some((data) => data.length < PAGE_SIZE)) break;
     }
+    return rows;
   }
 
   // ───────────────────────── Login ─────────────────────────
@@ -320,7 +349,7 @@
   // ───────────────────────── Clients ─────────────────────────
   async function loadClients() {
     try {
-      state.clients = await fetchAll(() => sb.from('clients').select('id, name, cpf').order('name'));
+      state.clients = await fetchAll(() => sb.from('clients').select('id, name, cpf').order('name').order('id'));
     } catch (err) {
       console.error(err);
       toast('Erro ao carregar clientes.');
@@ -357,10 +386,16 @@
   }
 
   // Re-render client lists only where visible; the Clientes tab renders when opened.
+  // Coalesced into one frame, so clients and plan statuses arriving together draw the list once.
+  let clientsChangedFrame = 0;
   function clientsChanged() {
     state.clientsDirty = true;
-    if (!$('#view-clients').hidden) renderClients();
-    if (!$('#client-options').hidden) renderCombo();
+    if (clientsChangedFrame) return;
+    clientsChangedFrame = requestAnimationFrame(() => {
+      clientsChangedFrame = 0;
+      if (!$('#view-clients').hidden && state.clientsDirty) renderClients();
+      if (!$('#client-options').hidden) renderCombo();
+    });
   }
 
   function renderClients() {
@@ -384,7 +419,7 @@
       li.append(el('span', 'avatar', initials), info);
       li.addEventListener('click', () => openClientForm(c));
       return li;
-    }, el('li', 'muted', q ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado.'));
+    }, el('li', 'muted', q ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado.'), { lazy: true });
   }
 
   function openClientForm(c) {
@@ -580,7 +615,7 @@
     return new Blob([...parts, ...central, end], { type: 'application/zip' });
   }
 
-  state.backup = null; // { at, maxSale, maxClient, sales, clients } — the wipe only deletes what this covers
+  state.backup = null; // { at, maxSale, maxClient, sales, clients } — the wipe only deletes the sales this covers
 
   $('#backup-btn').addEventListener('click', async () => {
     const btn = $('#backup-btn');
@@ -618,14 +653,208 @@
     }
   });
 
+  // ───────────────────────── Configurações: import clients (Anderson only) ─────────────────────────
+  // Reads a spreadsheet (.xlsx or .csv) on the phone, finds the CPF and name columns by their content,
+  // and registers every client not yet in the app. Clients without CPF get CPF_NONE. The file never
+  // leaves the device except as the new client rows; running it again only adds what is missing.
+  const IMPORT_BATCH = 500;
+
+  // Minimal .zip reader for .xlsx (deflate via the browser's DecompressionStream).
+  async function readZip(buf) {
+    const v = new DataView(buf);
+    let eocd = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) {
+      if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error('not a zip');
+    const count = v.getUint16(eocd + 10, true);
+    const dec = new TextDecoder();
+    const files = new Map();
+    for (let i = 0, p = v.getUint32(eocd + 16, true); i < count; i++) {
+      const method = v.getUint16(p + 10, true), size = v.getUint32(p + 20, true);
+      const nameLen = v.getUint16(p + 28, true), extraLen = v.getUint16(p + 30, true), commentLen = v.getUint16(p + 32, true);
+      const local = v.getUint32(p + 42, true);
+      files.set(dec.decode(new Uint8Array(buf, p + 46, nameLen)), { method, size, local });
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+    return async (name) => {
+      const f = files.get(name);
+      if (!f) return null;
+      const start = f.local + 30 + v.getUint16(f.local + 26, true) + v.getUint16(f.local + 28, true);
+      const raw = new Uint8Array(buf, start, f.size);
+      if (f.method === 0) return dec.decode(raw);
+      const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return new Response(stream).text();
+    };
+  }
+
+  const xmlDoc = (text) => new DOMParser().parseFromString(text, 'application/xml');
+  const xmlAll = (node, tag) => Array.from(node.getElementsByTagNameNS('*', tag));
+  const xmlText = (node) => xmlAll(node, 't').map((t) => t.textContent).join('');
+  const colIndex = (ref) => [...ref.replace(/\d+/g, '')].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+
+  // Rows of the workbook's first sheet, as arrays of cell texts (numbers as written in the file).
+  async function readXlsx(buf) {
+    const read = await readZip(buf);
+    const shared = xmlAll(xmlDoc((await read('xl/sharedStrings.xml')) || '<sst/>'), 'si').map(xmlText);
+    let sheetPath = 'xl/worksheets/sheet1.xml';
+    const wb = await read('xl/workbook.xml'), rels = await read('xl/_rels/workbook.xml.rels');
+    if (wb && rels) {
+      const first = xmlAll(xmlDoc(wb), 'sheet')[0];
+      const rid = first && (first.getAttribute('r:id') || first.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id'));
+      const rel = xmlAll(xmlDoc(rels), 'Relationship').find((r) => r.getAttribute('Id') === rid);
+      if (rel) { const t = rel.getAttribute('Target'); sheetPath = t.startsWith('/') ? t.slice(1) : `xl/${t}`; }
+    }
+    const sheet = await read(sheetPath);
+    if (!sheet) throw new Error('no sheet');
+    return xmlAll(xmlDoc(sheet), 'row').map((row) => {
+      const out = [];
+      xmlAll(row, 'c').forEach((c, i) => {
+        const ref = c.getAttribute('r');
+        const type = c.getAttribute('t');
+        const val = xmlAll(c, 'v')[0]?.textContent ?? '';
+        out[ref ? colIndex(ref) : i] = type === 's' ? (shared[Number(val)] ?? '') : type === 'inlineStr' ? xmlText(c) : val;
+      });
+      return Array.from(out, (x) => x ?? '');
+    });
+  }
+
+  // CSV with , or ; (Excel in pt-BR uses ;), quotes allowed.
+  function readCsv(text) {
+    text = text.replace(/^﻿/, '');
+    const firstLine = text.split(/\r?\n/, 1)[0];
+    const sep = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';' : ',';
+    const rows = [];
+    let row = [], cell = '', quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (quoted) {
+        if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') quoted = false; else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+
+  // The CPF column is the one with the most 11-digit values; the name column the one with the most letters.
+  function parseClientRows(rows) {
+    const width = Math.max(0, ...rows.map((r) => r.length));
+    const score = (test) => Array.from({ length: width }, (_, c) => rows.reduce((n, r) => n + (test(String(r[c] ?? '')) ? 1 : 0), 0));
+    const cpfScore = score((s) => /^[\d.\-\s/]*$/.test(s) && s.replace(/\D/g, '').length === 11);
+    const nameScore = score((s) => /[A-Za-zÀ-ÿ]{2,}/.test(s));
+    const cpfCol = cpfScore.indexOf(Math.max(...cpfScore));
+    const nameCol = nameScore.indexOf(Math.max(...nameScore));
+    if (nameCol < 0 || !nameScore[nameCol]) return null;
+    const out = [];
+    for (const r of rows) {
+      const name = normName(String(r[nameCol] ?? ''));
+      if (!name || /^NOMES?( DO CLIENTE| COMPLETO)?$/.test(name)) continue; // empty row or header
+      const raw = cpfCol >= 0 && cpfCol !== nameCol ? String(r[cpfCol] ?? '').trim() : '';
+      let cpf = raw.replace(/\D/g, '');
+      if (cpf.length > 0 && cpf.length < 11 && /^\d+$/.test(raw)) cpf = cpf.padStart(11, '0'); // Excel dropped the leading zeros
+      out.push({ name, cpf: cpf.length === 11 ? cpf : CPF_NONE });
+    }
+    return out;
+  }
+
+  let importPending = null; // rows ready to insert after the file was read
+
+  function resetImport() {
+    importPending = null;
+    $('#import-confirm').hidden = true;
+    $('#import-btn').hidden = false;
+  }
+
+  $('#import-btn').addEventListener('click', () => { $('#import-file').value = ''; $('#import-file').click(); });
+
+  $('#import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    const errBox = $('#import-error');
+    const status = $('#import-status');
+    showError(errBox, '');
+    status.hidden = true;
+    resetImport();
+    if (!file) return;
+    let rows;
+    try {
+      const buf = await file.arrayBuffer();
+      const isZip = buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50;
+      rows = parseClientRows(isZip ? await readXlsx(buf) : readCsv(new TextDecoder().decode(buf)));
+    } catch (err) {
+      console.error(err);
+      return showError(errBox, 'Não foi possível ler a planilha. Use um arquivo .xlsx ou .csv.');
+    }
+    if (!rows || !rows.length) return showError(errBox, 'Nenhum cliente encontrado na planilha.');
+
+    // Skip who is already in the app (or earlier in the file): same CPF, or same name when there is no CPF.
+    const cpfs = new Set(state.clients.map((c) => c.cpf).filter((c) => c && c !== CPF_NONE));
+    const names = new Set(state.clients.map((c) => c.name));
+    const fresh = [];
+    for (const r of rows) {
+      if (r.cpf !== CPF_NONE ? cpfs.has(r.cpf) : names.has(r.name)) continue;
+      if (r.cpf !== CPF_NONE) cpfs.add(r.cpf);
+      names.add(r.name);
+      fresh.push(r);
+    }
+    const noCpf = fresh.filter((r) => r.cpf === CPF_NONE).length;
+    const skipped = rows.length - fresh.length;
+    status.textContent = `${num.format(rows.length)} clientes na planilha: ${num.format(fresh.length)} novos`
+      + (noCpf ? ` (${num.format(noCpf)} sem CPF, ficam com 000.000.000-00)` : '')
+      + (skipped ? `, ${num.format(skipped)} já cadastrados ou repetidos.` : '.');
+    status.hidden = false;
+    if (!fresh.length) return;
+    status.textContent += ' Nada foi salvo ainda: toque no botão abaixo para cadastrar.';
+    importPending = fresh;
+    const ok = $('#import-confirm');
+    ok.textContent = `Cadastrar ${num.format(fresh.length)} clientes`;
+    ok.hidden = false;
+    $('#import-btn').hidden = true;
+  });
+
+  $('#import-confirm').addEventListener('click', async () => {
+    const rows = importPending;
+    if (!rows) return;
+    const btn = $('#import-confirm');
+    const errBox = $('#import-error');
+    const status = $('#import-status');
+    showError(errBox, '');
+    btn.disabled = true;
+    let done = 0;
+    try {
+      for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
+        const { error } = await sb.from('clients').insert(rows.slice(i, i + IMPORT_BATCH));
+        if (error) throw error;
+        done += Math.min(IMPORT_BATCH, rows.length - i);
+        btn.textContent = `Cadastrando… ${num.format(done)} de ${num.format(rows.length)}`;
+      }
+      status.textContent = `${num.format(done)} clientes cadastrados.`;
+      toast(`${num.format(done)} clientes importados.`);
+    } catch (err) {
+      console.error(err);
+      status.textContent = `${num.format(done)} de ${num.format(rows.length)} clientes cadastrados.`;
+      showError(errBox, 'A importação parou (verifique a internet). Escolha a planilha de novo para cadastrar o que faltou.');
+    } finally {
+      await loadClients(); // the next file is compared against the clients just saved, so nothing repeats
+      btn.disabled = false;
+      resetImport();
+      loadUsage();
+    }
+  });
+
   const wipeModal = $('#wipe-modal');
   $('#wipe-btn').addEventListener('click', () => {
     const b = state.backup;
     if (!b) return;
     const text = $('#wipe-modal-text');
     text.replaceChildren(
-      'Serão apagadas ', el('strong', null, `${num.format(b.sales)} vendas`), ' e ', el('strong', null, `${num.format(b.clients)} clientes`),
-      ` (tudo o que está no backup das ${fmtDateTime(b.at).slice(11)}). Vendas e clientes criados depois do backup continuam. Os logins continuam. Não dá para desfazer.`,
+      'Serão apagadas ', el('strong', null, `${num.format(b.sales)} vendas`),
+      ` (tudo o que está no backup das ${fmtDateTime(b.at).slice(11)}). Vendas feitas depois do backup continuam. `,
+      el('strong', null, 'Os clientes continuam'), ' (ficam Sem plano), e os logins também. Não dá para desfazer.',
     );
     $('#wipe-modal-word').value = '';
     $('#wipe-modal-current').value = '';
@@ -653,7 +882,9 @@
       const check = await sb.auth.signInWithPassword({ email: user?.email || CFG.users.owner.email, password: current });
       if (check.error) return showError(errBox, 'Senha atual incorreta.');
 
-      const { data, error } = await sb.rpc('wipe_data', { max_sale_id: b.maxSale, max_client_id: b.maxClient });
+      // Clients are never deleted. max_client_id: 0 also keeps them on a database still running the old
+      // wipe_data() from 006_wipe.sql (it deleted clients up to that id); 010_wipe_sales_only.sql ignores it.
+      const { data, error } = await sb.rpc('wipe_data', { max_sale_id: b.maxSale, max_client_id: 0 });
       if (error) {
         console.error(error);
         return showError(errBox, error.code === 'PGRST202'
@@ -671,7 +902,7 @@
       loadClients();
       loadSubscriptions();
       loadUsage();
-      toast(`Apagados: ${num.format(data?.sales ?? 0)} vendas e ${num.format(data?.clients ?? 0)} clientes.`);
+      toast(`Apagadas: ${num.format(data?.sales ?? 0)} vendas. Os clientes continuam.`);
     } catch (err) {
       console.error(err);
       showError(errBox, 'Sem conexão. Tente de novo.');
@@ -972,7 +1203,7 @@
     const cpf = modalCpf.value.replace(/\D/g, '');
     if (!name) return showError(errBox, 'Informe o nome.');
     if (cpf && cpf.length !== 11) return showError(errBox, 'CPF deve ter 11 dígitos.');
-    const dup = cpf && state.clients.find((c) => c.cpf === cpf);
+    const dup = cpf && cpf !== CPF_NONE && state.clients.find((c) => c.cpf === cpf);
     if (dup) return showError(errBox, `CPF já cadastrado para ${dup.name}.`);
 
     const btn = e.submitter || $('#client-modal-form button[type="submit"]');

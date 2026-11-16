@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=249d6216">
+  <link rel="stylesheet" href="css/style.css?v=9b855a35">
 </head>
 <body>
 
@@ -36,6 +36,7 @@
       <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10z"/><path d="M14 7.5l3 3"/></symbol>
       <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></symbol>
       <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20.5h16"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M4 20.5h16"/></symbol>
       <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></symbol>
       <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.8"/><path d="M6 9.5v5M18 9.5v5"/></symbol>
       <symbol id="i-chevs" viewBox="0 0 24 24"><path d="M5 6l6 6-6 6M13 6l6 6-6 6"/></symbol>
@@ -324,10 +325,19 @@
             <button type="button" class="btn btn-ghost btn-block" id="backup-btn"><svg class="ico"><use href="#i-download"/></svg> Baixar backup</button>
             <p class="data-status" id="backup-status" hidden></p>
           </div>
+          <div class="data-block">
+            <div class="pw-title">Importar clientes</div>
+            <p class="data-text">Cadastra os clientes de uma planilha <strong>.xlsx</strong> ou <strong>.csv</strong> com nome e CPF. Quem não tem CPF fica com <strong>000.000.000-00</strong>. Quem já está no app é pulado, então dá para importar de novo sem duplicar.</p>
+            <p class="error" id="import-error" hidden></p>
+            <input type="file" id="import-file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <button type="button" class="btn btn-ghost btn-block" id="import-btn"><svg class="ico"><use href="#i-upload"/></svg> Escolher planilha</button>
+            <button type="button" class="btn btn-hero btn-block" id="import-confirm" hidden></button>
+            <p class="data-status" id="import-status" hidden></p>
+          </div>
           <div class="data-block data-danger">
-            <div class="pw-title">Apagar dados</div>
-            <p class="data-text">Apaga <strong>todas as vendas e todos os clientes</strong>. Os logins e as senhas continuam. <strong>Não dá para desfazer.</strong></p>
-            <button type="button" class="btn btn-danger btn-block" id="wipe-btn" disabled>Apagar todos os dados</button>
+            <div class="pw-title">Apagar vendas</div>
+            <p class="data-text">Apaga <strong>todas as vendas</strong> (pagamentos). Os clientes, os logins e as senhas continuam; os clientes ficam <strong>Sem plano</strong>. <strong>Não dá para desfazer.</strong></p>
+            <button type="button" class="btn btn-danger btn-block" id="wipe-btn" disabled>Apagar todas as vendas</button>
             <p class="data-hint" id="wipe-hint">Baixe o backup antes de apagar.</p>
           </div>
         </div>
@@ -407,7 +417,7 @@
   <!-- Confirmação antes de apagar os dados -->
   <dialog class="modal" id="wipe-modal" aria-labelledby="wipe-modal-title">
     <form id="wipe-modal-form" class="panel" novalidate>
-      <div class="panel-head" id="wipe-modal-title"><span class="step"><svg class="ico"><use href="#i-lock"/></svg></span> Apagar todos os dados?</div>
+      <div class="panel-head" id="wipe-modal-title"><span class="step"><svg class="ico"><use href="#i-lock"/></svg></span> Apagar todas as vendas?</div>
       <p class="pw-modal-text" id="wipe-modal-text"></p>
       <label class="field">
         <span>Digite APAGAR para confirmar</span>
@@ -420,7 +430,7 @@
       <p class="error" id="wipe-modal-error" hidden></p>
       <div class="actions">
         <button type="button" class="btn btn-ghost" id="wipe-modal-cancel">Cancelar</button>
-        <button type="submit" class="btn btn-hero" id="wipe-modal-ok">Apagar tudo</button>
+        <button type="submit" class="btn btn-hero" id="wipe-modal-ok">Apagar vendas</button>
       </div>
     </form>
   </dialog>
@@ -462,6 +472,6 @@
   <script defer src="js/printer.js?v=b81edba2"></script>
   <script defer src="js/receipt.js?v=c1b1b2cd"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=050595c2"></script>
+  <script defer src="js/app.js?v=3107c90d"></script>
 </body>
 </html>
