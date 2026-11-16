@@ -5,8 +5,8 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  const PLAN_MONTHS = { mensal: 1, semestral: 6, anual: 12 };
-  const PLAN_LABEL = { mensal: 'Mensal', semestral: 'Semestral', anual: 'Anual' };
+  const PLAN_MONTHS = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
+  const PLAN_LABEL = { mensal: 'Mensal', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
   const PAYMENT_LABEL = { pix: 'Pix', credito: 'Crédito', debito: 'Débito', dinheiro: 'Dinheiro' };
   const PAGE_SIZE = 1000; // Supabase returns at most 1000 rows per request
 

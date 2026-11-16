@@ -56,8 +56,8 @@ create table public.sales (
   amount         numeric(10, 2) not null check (amount >= 0),
   payment_method text not null check (payment_method in ('pix', 'credito', 'debito', 'dinheiro')),
   class_time     text not null check (class_time ~ '^\d{2}:\d{2}$'),
-  plan           text not null check (plan in ('mensal', 'semestral', 'anual')),
-  days_per_week  text not null check (days_per_week in ('1', '2', '3', '4+')),
+  plan           text not null check (plan in ('mensal', 'trimestral', 'semestral', 'anual')),
+  days_per_week  text not null check (days_per_week in ('2', '3', '4', '5', '1', '4+')), -- '1' and '4+': older sales only
   plan_start     date not null,
   plan_end       date not null,
   notes          text,
