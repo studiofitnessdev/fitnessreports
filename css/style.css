@@ -240,7 +240,8 @@ select option { background: var(--surface-2); color: var(--text); }
   40%, 80% { transform: translateX(5px); }
 }
 
-/* Field with a leading icon */
+/* Field with a leading icon (anchored to the box around the input, not to a field that also holds a list) */
+.field-icon { position: relative; }
 .field-icon .field-ico {
   position: absolute; left: 14px; bottom: 16px;
   width: 20px; height: 20px; color: var(--red-bright); pointer-events: none;
@@ -311,6 +312,8 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .pills-plan { display: grid; grid-template-columns: repeat(5, 1fr); }
 @media (max-width: 479px) { .pills-plan { grid-template-columns: repeat(3, 1fr); } } /* Diária · Mensal · Trimestral / Semestral · Anual */
 .pills-plan label { min-width: 0; }
+@media (min-width: 480px) { .pills-plan span { font-size: 1rem; letter-spacing: .01em; } } /* "Trimestral" fits 5 across */
+.modal .pills-plan { grid-template-columns: repeat(3, 1fr); } /* Editar venda: the dialog is narrower than the page */
 .pills-days label { min-width: 0; } /* 2 · 3 · 4 · 5 always on one row */
 .pills-days span { font-size: 1.7rem; font-weight: 900; min-height: 56px; }
 .pills-login span { min-height: 56px; font-size: 1.3rem; }
@@ -524,6 +527,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 #client-form { margin-bottom: 14px; }
 .list-clients li { display: flex; align-items: center; gap: 14px; cursor: pointer; transition: border-color .15s, transform .12s; }
 .list-clients li:active { transform: scale(.98); border-color: rgba(255, 45, 31, .5); }
+.list-clients li.muted { display: block; cursor: default; transform: none; border-color: var(--line-strong); } /* empty state */
 /* Invisible marker after the drawn clients: reaching it draws the next ones */
 .list li.list-sentinel { display: block; content-visibility: visible; height: 1px; margin-top: -10px; padding: 0; border: 0; background: none; box-shadow: none; pointer-events: none; }
 .list li.list-sentinel::before, .list li.list-sentinel::after { content: none; }
@@ -691,6 +695,7 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .data-text { margin: 0 0 14px; line-height: 1.45; color: var(--muted); }
 .data-text strong { color: var(--text); }
 .data-status { margin: 10px 0 0; font-size: .9rem; color: #3ddc84; }
+.import-cancel { justify-content: center; margin-top: 8px; }
 .data-hint { margin: 10px 0 0; font-size: .9rem; color: var(--muted); text-align: center; }
 .data-danger .pw-title { color: #ff4d40; }
 .btn-danger { color: #ff4d40; background: rgba(225, 6, 0, .08); border: 1.5px solid rgba(255, 45, 31, .7); }

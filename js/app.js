@@ -224,6 +224,7 @@
     celebrateReceipt = null;
     $('#celebrate').hidden = true;
     $('#confetti').replaceChildren();
+    if (!$('#view-sale').hidden) window.scrollTo({ top: 0, behavior: reducedMotion() ? 'auto' : 'smooth' }); // next sale starts at Cliente
   }
   $('#celebrate').addEventListener('click', (e) => {
     if ($('#celebrate').dataset.sticky && !e.target.closest('#celebrate-ok')) return;
@@ -293,6 +294,18 @@
     state.historyReq = null;
     clearListJob($('#history-list'));
     $('#history-list').replaceChildren();
+    // Nor what the last login left half done (a sale being typed, a search, an open form, a sheet to import)
+    saleForm.reset();
+    closeCombo();
+    $('#sale-client').value = '';
+    $('#client-form').hidden = true;
+    $('#clients-search').value = '';
+    $('#clients-search-clear').hidden = true;
+    state.clientFilter = 'all';
+    $$('#client-filters .chip').forEach((c) => c.classList.toggle('active', c.dataset.filter === 'all'));
+    state.clientsDirty = true;
+    resetImport();
+    $('#import-status').hidden = true;
   }
 
   // A failed sign-in: wrong password only when the server says so; no internet is not a wrong password.
@@ -498,6 +511,7 @@
     active: 'Nenhum cliente com plano ativo.',
     none: 'Todos os clientes têm plano.',
   };
+  const FILTER_NAME = { soon: 'Vencendo', expired: 'Vencidos', active: 'Ativos', none: 'Sem plano' };
   state.clientFilter = 'all';
 
   // Counts per status on the filter chips (all clients, ignoring the search)
@@ -527,7 +541,9 @@
       if (f === 'soon') items.sort((a, b) => end(a).localeCompare(end(b)));
       if (f === 'expired') items.sort((a, b) => end(b).localeCompare(end(a)));
     }
-    const empty = q ? 'Nenhum cliente encontrado.' : (FILTER_EMPTY[f] || 'Nenhum cliente cadastrado.');
+    const empty = q
+      ? (f !== 'all' ? `Nenhum cliente encontrado em ${FILTER_NAME[f]}. Toque em Todos para buscar em todos.` : 'Nenhum cliente encontrado.')
+      : (FILTER_EMPTY[f] || 'Nenhum cliente cadastrado.');
     renderList($('#clients-list'), items, (c) => {
       const li = el('li');
       const parts = c.name.split(' ').filter(Boolean);
@@ -575,6 +591,8 @@
     $('#client-phone').value = fmtPhone(c?.phone);
     showError($('#client-error'), '');
     $('#client-delete').hidden = !(c && state.role === 'owner');
+    $('#client-form-heading').textContent = c ? 'Cliente' : 'Novo cliente';
+    delete $('#client-form').dataset.sameName;
     $('#client-form').hidden = false;
     $('#client-name').focus();
     window.scrollTo(0, 0);
@@ -600,33 +618,61 @@
   ['#client-phone', '#modal-client-phone'].forEach((sel) => $(sel).addEventListener('input', (e) => { e.target.value = fmtPhone(e.target.value); }));
 
   // Shared checks of both client forms. Returns { row } or { error }.
-  function clientRow(nameInput, cpfInput, phoneInput, selfId) {
+  // A name another client already has needs a second tap on the button: it may be the same person twice.
+  function clientRow(nameInput, cpfInput, phoneInput, selfId, form) {
     const name = normName(nameInput.value);
     const cpf = cpfInput.value.replace(/\D/g, '') || CPF_NONE;
     const phone = phoneInput.value.replace(/\D/g, '');
+    const self = selfId ? state.clients.find((c) => String(c.id) === String(selfId)) : null;
     if (!name) return { error: 'Informe o nome.' };
     if (cpf.length !== 11) return { error: 'CPF deve ter 11 dígitos (ou deixe em branco).' };
-    const dup = cpf !== CPF_NONE && state.clients.find((c) => c.cpf === cpf && String(c.id) !== String(selfId ?? ''));
+    // The check digits catch a mistyped CPF. One already saved that way (older imports) can stay as it is.
+    if (cpf !== CPF_NONE && !validCpf(cpf) && cpf !== self?.cpf) return { error: 'CPF inválido: confira os números (ou deixe em branco).' };
+    const dup = cpf !== CPF_NONE && state.clients.find((c) => c.cpf === cpf && c !== self);
     if (dup) return { error: `CPF já cadastrado para ${dup.name}.` };
     if (phone && phone.length !== 10 && phone.length !== 11) return { error: 'WhatsApp com DDD: (35) 99999-9999.' };
+    const same = name !== self?.name ? state.clients.filter((c) => c.name === name && c !== self) : [];
+    if (same.length && form.dataset.sameName !== name) {
+      form.dataset.sameName = name;
+      const btn = form.querySelector('button[type="submit"]').textContent.trim();
+      const who = same.length > 1 ? `Já existem ${same.length} clientes chamados ${name}.`
+        : `Já existe ${name} (${showCpf(same[0].cpf) || fmtPhone(same[0].phone) || 'sem CPF'}).`;
+      return { error: `${who} Se for outra pessoa, toque em ${btn} de novo.` };
+    }
     return { row: { name, cpf, ...(state.hasPhone ? { phone: phone || null } : {}) } };
   }
   const saveErrorText = (error, fallback) => (error?.code === '23505' ? 'CPF já cadastrado para outro cliente.' : fallback);
 
+  let clientSaving = false; // a second tap (or Enter) while saving would register the client twice
   $('#client-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (clientSaving) return;
+    const form = $('#client-form');
     const id = $('#client-id').value;
-    const { row, error: invalid } = clientRow($('#client-name'), $('#client-cpf'), $('#client-phone'), id);
+    const { row, error: invalid } = clientRow($('#client-name'), $('#client-cpf'), $('#client-phone'), id, form);
     if (invalid) return showError($('#client-error'), invalid);
 
-    const { error } = id
-      ? await sb.from('clients').update(row).eq('id', id)
-      : await sb.from('clients').insert(row);
-    if (error) { console.error(error); return showError($('#client-error'), saveErrorText(error, 'Erro ao salvar cliente.')); }
+    const btn = form.querySelector('button[type="submit"]');
+    clientSaving = true;
+    btn.disabled = true;
+    const cols = state.hasPhone ? 'id, name, cpf, phone' : 'id, name, cpf';
+    const { data, error } = await (id ? sb.from('clients').update(row).eq('id', id) : sb.from('clients').insert(row)).select(cols);
+    clientSaving = false;
+    btn.disabled = false;
+    if (error) { console.error(error); return showError($('#client-error'), saveErrorText(error, 'Erro ao salvar cliente. Verifique a internet.')); }
 
-    $('#client-form').hidden = true;
+    form.hidden = true;
+    if (!data?.length) { // deleted on another phone meanwhile
+      loadClients();
+      return toast('Cliente não encontrado (talvez tenha sido apagado).');
+    }
+    // Show the change right away (reloading every client takes a few seconds, and the old row could be tapped meanwhile)
+    const saved = data[0];
+    saved.key = searchKey(saved.name);
+    state.clients = [...state.clients.filter((c) => c.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    if (state.selectedClient?.id === saved.id) selectClient(saved);
+    clientsChanged();
     toast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
-    loadClients();
   });
 
   // ── Apagar cliente (Anderson only; the database allows only the owner to delete clients).
@@ -644,6 +690,7 @@
     const sub = state.subs ? subStatus(c.id) : null;
     const items = [['Cliente', c.name], ['CPF', showCpf(c.cpf) || 'Sem CPF']];
     if (c.phone) items.push(['WhatsApp', fmtPhone(c.phone)]);
+    if (isHomonym(c)) items.push(['Código', String(c.id)]); // which of the clients with this name
     if (sub) items.push(['Plano', [sub.tag, sub.detail].filter(Boolean).join(' · ')]);
     items.push(['Vendas', 'contando…']);
     $('#client-del-summary').replaceChildren(...items.flatMap(([k, v]) => [el('dt', null, k), el('dd', null, v)]));
@@ -1032,8 +1079,14 @@
   function resetImport() {
     importPending = null;
     $('#import-confirm').hidden = true;
+    $('#import-cancel').hidden = true;
     $('#import-btn').hidden = false;
   }
+  $('#import-cancel').addEventListener('click', () => {
+    resetImport();
+    $('#import-status').hidden = true;
+    showError($('#import-error'), '');
+  });
 
   $('#import-btn').addEventListener('click', () => { $('#import-file').value = ''; $('#import-file').click(); });
 
@@ -1089,7 +1142,7 @@
       + '.';
     status.hidden = false;
     if (!fresh.length && !phones.size) return;
-    status.textContent += ' Nada foi salvo ainda: toque no botão abaixo para cadastrar.';
+    status.textContent += ' Nada foi salvo ainda: confira e confirme no botão acima.';
     importPending = { fresh, phones: [...phones] };
     const ok = $('#import-confirm');
     ok.textContent = [
@@ -1097,6 +1150,7 @@
       phones.size && `${fresh.length ? 'e ' : 'Salvar '}${num.format(phones.size)} WhatsApp`,
     ].filter(Boolean).join(' ');
     ok.hidden = false;
+    $('#import-cancel').hidden = false;
     $('#import-btn').hidden = true;
   });
 
@@ -1108,6 +1162,7 @@
     const status = $('#import-status');
     showError(errBox, '');
     btn.disabled = true;
+    $('#import-cancel').hidden = true;
     let done = 0, phonesDone = 0;
     const doneText = () => [
       rows.length && `${num.format(done)} de ${num.format(rows.length)} clientes cadastrados`,
@@ -1493,6 +1548,7 @@
     modalCpf.value = isName ? '' : fmtCpf(q || '');
     $('#modal-client-phone').value = '';
     showError($('#modal-client-error'), '');
+    delete $('#client-modal-form').dataset.sameName;
     clientModal.showModal();
     (modalName.value ? modalCpf : modalName).focus();
   }
@@ -1504,7 +1560,7 @@
   $('#client-modal-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errBox = $('#modal-client-error');
-    const { row, error: invalid } = clientRow(modalName, modalCpf, $('#modal-client-phone'), null);
+    const { row, error: invalid } = clientRow(modalName, modalCpf, $('#modal-client-phone'), null, $('#client-modal-form'));
     if (invalid) return showError(errBox, invalid);
 
     const btn = e.submitter || $('#client-modal-form button[type="submit"]');

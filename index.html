@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=e7f25035">
+  <link rel="stylesheet" href="css/style.css?v=cd52e57f">
 </head>
 <body>
 
@@ -256,7 +256,7 @@
         </div>
 
         <form id="client-form" class="panel" hidden>
-          <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-user"/></svg></span> Cliente</div>
+          <div class="panel-head"><span class="step"><svg class="ico"><use href="#i-user"/></svg></span> <span id="client-form-heading">Cliente</span></div>
           <input type="hidden" id="client-id">
           <label class="field">
             <span>Nome</span>
@@ -358,6 +358,7 @@
             <input type="file" id="import-file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
             <button type="button" class="btn btn-ghost btn-block" id="import-btn"><svg class="ico"><use href="#i-upload"/></svg> Escolher planilha</button>
             <button type="button" class="btn btn-hero btn-block" id="import-confirm" hidden></button>
+            <button type="button" class="btn btn-ghost btn-block btn-sm import-cancel" id="import-cancel" hidden>Cancelar</button>
             <p class="data-status" id="import-status" hidden></p>
           </div>
           <div class="data-block data-danger">
@@ -571,6 +572,6 @@
   <script defer src="js/printer.js?v=b81edba2"></script>
   <script defer src="js/receipt.js?v=f68f118c"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=204ba689"></script>
+  <script defer src="js/app.js?v=c41d395d"></script>
 </body>
 </html>
