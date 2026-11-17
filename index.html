@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Open the connections early: JS library CDN and the Supabase API (same URL as js/config.js) -->
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net"> <!-- no crossorigin: the <script> request isn't CORS, so it can reuse this connection -->
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
@@ -472,6 +472,6 @@
   <script defer src="js/printer.js?v=b81edba2"></script>
   <script defer src="js/receipt.js?v=c1b1b2cd"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=3107c90d"></script>
+  <script defer src="js/app.js?v=d5e415cd"></script>
 </body>
 </html>

@@ -48,6 +48,22 @@ Put them in [`js/config.js`](js/config.js). **Never use the `secret` / `service_
 
 Free GitHub Pages requires a public repo. That's fine: no client data is stored in the repo, only the code.
 
+## Service worker (fast launches on an old phone)
+[`sw.js`](sw.js) keeps the app's files on the phone, so after the first visit the app opens without downloading anything:
+- **The page** (`index.html`) comes from the network first, so a new deploy shows up on the next launch. If the network takes more than 2.5 s or is down, the last saved copy opens instead.
+- **css/js** (with `?v=`), images, supabase-js and the Google Fonts come from the phone's cache. `scripts/bump-version.sh` changes their `?v=` and the cache name in `sw.js`, so **always run it before committing**: without it, phones keep the old files.
+- **Supabase** (logins, clients, sales) is never cached: data always comes from the database.
+- It doesn't run on `localhost` / `127.0.0.1`, so local edits always show up. (`http://[::1]:8000` does run it, for testing.)
+
+**Kill switch**: if the cache ever causes trouble, replace all of `sw.js` with this and deploy. On their next launch phones drop the cache and the service worker; the launch after that loads everything from the network (harmless to leave in place, even with the registration still in `js/app.js`):
+```js
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+  for (const k of await caches.keys()) await caches.delete(k);
+  await self.registration.unregister();
+})()));
+```
+
 ## Check that the teacher really can't see values
 1. Open the site, log in as **Professor**.
 2. Open the browser console (desktop Chrome: F12) and run:

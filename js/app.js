@@ -105,16 +105,17 @@
   // With { lazy: true } the rest is drawn only as the user scrolls near the end of the list
   // (for long lists that have a search box, like Clientes).
   const listJobs = new WeakMap();
+  const clearListJob = (listEl) => { listJobs.get(listEl)?.observer?.disconnect(); listJobs.delete(listEl); };
   function renderList(listEl, items, makeItem, emptyNode, { lazy = false } = {}) {
     const job = {};
-    listJobs.get(listEl)?.observer?.disconnect();
+    clearListJob(listEl);
     listJobs.set(listEl, job);
     const FIRST = 40, CHUNK = lazy ? 60 : 200;
     listEl.replaceChildren(...items.slice(0, FIRST).map(makeItem));
     if (!items.length && emptyNode) listEl.append(emptyNode);
     let i = FIRST;
-    if (lazy) {
-      if (i >= items.length || !window.IntersectionObserver) return;
+    if (lazy && window.IntersectionObserver) { // without it, fall back to drawing everything in idle chunks
+      if (i >= items.length) return;
       const sentinel = el('li', 'list-sentinel');
       sentinel.setAttribute('aria-hidden', 'true');
       listEl.append(sentinel);
@@ -213,6 +214,13 @@
     if (celebrateReceipt) printReceipt(celebrateReceipt.canvas, e.currentTarget);
   });
 
+  // ───────────────────────── Offline cache (sw.js) ─────────────────────────
+  // Repeat launches load css/js/fonts from the phone instead of the network. Not on localhost, so files
+  // edited during development (without running bump-version.sh) are never served from an old cache.
+  if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker:', err)));
+  }
+
   // ───────────────────────── Supabase ─────────────────────────
   const configured = CFG && !CFG.supabaseUrl.includes('YOUR-') && !CFG.supabaseKey.includes('YOUR-');
   const sb = configured ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey) : null;
@@ -262,7 +270,7 @@
     historyCache.clear();
     state.history = null;
     state.historyReq = null;
-    listJobs.delete($('#history-list'));
+    clearListJob($('#history-list'));
     $('#history-list').replaceChildren();
   }
 
@@ -1350,7 +1358,7 @@
       state.history = null;
       state.historyReq = null;
       $('#export-bar').hidden = true;
-      listJobs.delete($('#history-list'));
+      clearListJob($('#history-list'));
       $('#history-list').replaceChildren();
       status.textContent = 'Escolha as datas e toque em Filtrar.';
       $('#total-value').textContent = fmtMoney(0);
@@ -1432,7 +1440,7 @@
       bottom.append(meta, btns);
       li.append(top, mid, bottom);
       return li;
-    }, el('li', 'muted', 'Nenhuma venda nesse período. Bora vender!'));
+    }, el('li', 'muted', 'Nenhuma venda nesse período. Bora vender!'), { lazy: true });
   }
 
   // Delete one sale (both logins, whoever registered it) through delete_sale() (supabase/008_delete_sale.sql).
