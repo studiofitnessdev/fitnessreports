@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=1c2f86a5">
+  <link rel="stylesheet" href="css/style.css?v=b85cfd21">
 </head>
 <body>
 
@@ -145,6 +145,7 @@
             <fieldset class="field">
               <legend class="sr-only">Plano</legend>
               <div class="pills pills-plan">
+                <label><input type="radio" name="plan" value="diaria"><span>Diária<small>1 dia</small></span></label>
                 <label><input type="radio" name="plan" value="mensal" checked><span>Mensal<small>1 mês</small></span></label>
                 <label><input type="radio" name="plan" value="trimestral"><span>Trimestral<small>3 meses</small></span></label>
                 <label><input type="radio" name="plan" value="semestral"><span>Semestral<small>6 meses</small></span></label>
@@ -152,7 +153,7 @@
               </div>
             </fieldset>
 
-            <fieldset class="field">
+            <fieldset class="field" id="sale-days-field">
               <legend>Dias por semana</legend>
               <div class="pills pills-days">
                 <label><input type="radio" name="days" value="2"><span>2</span></label>
@@ -510,7 +511,7 @@
         <legend>Plano</legend>
         <div class="pills pills-plan" id="edit-plan-pills"></div>
       </fieldset>
-      <fieldset class="field">
+      <fieldset class="field" id="edit-days-field">
         <legend>Dias por semana</legend>
         <div class="pills pills-days" id="edit-days-pills"></div>
       </fieldset>
@@ -552,8 +553,8 @@
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
   <script defer src="js/printer.js?v=b81edba2"></script>
-  <script defer src="js/receipt.js?v=c1b1b2cd"></script>
+  <script defer src="js/receipt.js?v=f68f118c"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=b7ea6c5b"></script>
+  <script defer src="js/app.js?v=93defa35"></script>
 </body>
 </html>

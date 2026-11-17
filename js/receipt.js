@@ -106,7 +106,7 @@ window.Receipt = (() => {
 
       // ── Plan
       row('Plano', r.plan);
-      row('Dias por semana', r.days);
+      if (r.days) row('Dias por semana', r.days); // none for a Diária
       row('Horário', r.time);
       row('Início', r.start);
       row('Vencimento', r.end);

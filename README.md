@@ -21,7 +21,7 @@ Plain HTML/CSS/JS hosted on GitHub Pages, data in Supabase (free plan).
 2. Paste all of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
 
 ### 2b. Updates (only if you ran `schema.sql` before these files existed)
-Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password), [`006_wipe.sql`](supabase/006_wipe.sql) (Apagar vendas), [`007_receipt.sql`](supabase/007_receipt.sql) (receipt number on the Professor's printed receipts), [`008_delete_sale.sql`](supabase/008_delete_sale.sql) (Professor's Histórico and Apagar venda), [`009_plans.sql`](supabase/009_plans.sql) (Trimestral plan and 2–5 dias/semana), [`010_wipe_sales_only.sql`](supabase/010_wipe_sales_only.sql) (Apagar vendas keeps the clients), [`011_cpf_phone_edit_sale.sql`](supabase/011_cpf_phone_edit_sale.sql) (unique CPF, WhatsApp, Editar venda). If 011 stops with "CPFs repetidos", fix those clients in Clientes and run it again.
+Run each in the SQL Editor, once: [`002_dinheiro.sql`](supabase/002_dinheiro.sql) (cash payments), [`003_subscriptions.sql`](supabase/003_subscriptions.sql) (plan status in Clientes), [`004_usage.sql`](supabase/004_usage.sql) (database usage in Configurações), [`005_passwords.sql`](supabase/005_passwords.sql) (Anderson changes the Professor password), [`006_wipe.sql`](supabase/006_wipe.sql) (Apagar vendas), [`007_receipt.sql`](supabase/007_receipt.sql) (receipt number on the Professor's printed receipts), [`008_delete_sale.sql`](supabase/008_delete_sale.sql) (Professor's Histórico and Apagar venda), [`009_plans.sql`](supabase/009_plans.sql) (Trimestral plan and 2–5 dias/semana), [`010_wipe_sales_only.sql`](supabase/010_wipe_sales_only.sql) (Apagar vendas keeps the clients), [`011_cpf_phone_edit_sale.sql`](supabase/011_cpf_phone_edit_sale.sql) (unique CPF, WhatsApp, Editar venda), [`012_diaria.sql`](supabase/012_diaria.sql) (Diária plan). If 011 stops with "CPFs repetidos", fix those clients in Clientes and run it again.
 
 ### 3. Block public sign-ups (important)
 The site's key is public, so nobody else must be able to create an account.
@@ -81,7 +81,7 @@ Any static server works, e.g. `python3 -m http.server 8000` in this folder, then
 
 ## Rules built in
 - **Receipt numbers** continue from the old app: the first sale is **#6518** (change `start with` in `schema.sql` before running it if needed).
-- **Plan dates**: start = day of the sale, end = same day 1/3/6/12 months later (Mensal, Trimestral, Semestral, Anual) (31/01 + 1 month → 28/02).
+- **Plan dates**: start = day of the sale, end = same day 1/3/6/12 months later (Mensal, Trimestral, Semestral, Anual); a **Diária** (day pass) starts and ends on the day of the sale (31/01 + 1 month → 28/02).
 - **Observação** is pre-filled with the plan period and can be edited.
 - **Dias por semana**: 2, 3, 4 or 5 (older sales with 1 or 4+ still show as they were).
 - **Defaults**: Pix, Mensal, 3 dias/semana, 07:00.

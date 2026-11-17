@@ -5,8 +5,11 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-  const PLAN_MONTHS = { mensal: 1, trimestral: 3, semestral: 6, anual: 12 };
-  const PLAN_LABEL = { mensal: 'Mensal', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
+  // A Diária has no days per week: it's saved as '1' (the database requires a value) and never shown.
+  const DIARIA_DAYS = '1';
+  const daysLabel = (r) => (r.plan === 'diaria' ? '' : r.days_per_week === '4+' ? '4 ou mais' : r.days_per_week);
+  const PLAN_MONTHS = { diaria: 0, mensal: 1, trimestral: 3, semestral: 6, anual: 12 }; // diária: starts and ends on the sale day
+  const PLAN_LABEL = { diaria: 'Diária', mensal: 'Mensal', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
   const PAYMENT_LABEL = { pix: 'Pix', credito: 'Crédito', debito: 'Débito', dinheiro: 'Dinheiro' };
   const PAGE_SIZE = 1000; // Supabase returns at most 1000 rows per request
 
@@ -1149,14 +1152,18 @@
   let lastAutoNote = '';
   function updateNotes() {
     const { start, end } = planDates();
-    const auto = `Plano ${PLAN_LABEL[radioValue('plan')]}: ${fmtDate(start)} a ${fmtDate(end)}`;
+    const auto = radioValue('plan') === 'diaria'
+      ? `Diária: ${fmtDate(start)}`
+      : `Plano ${PLAN_LABEL[radioValue('plan')]}: ${fmtDate(start)} a ${fmtDate(end)}`;
     const notes = $('#sale-notes');
     if (!notes.value.trim()) notes.value = auto;
     else if (lastAutoNote && notes.value.includes(lastAutoNote)) notes.value = notes.value.replace(lastAutoNote, auto);
     lastAutoNote = auto;
   }
 
-  saleForm.querySelectorAll('input[name="plan"]').forEach((r) => r.addEventListener('change', updateNotes));
+  // Diária: no days per week
+  const syncDaysField = () => { $('#sale-days-field').hidden = radioValue('plan') === 'diaria'; };
+  saleForm.querySelectorAll('input[name="plan"]').forEach((r) => r.addEventListener('change', () => { updateNotes(); syncDaysField(); }));
   saleForm.addEventListener('reset', () => {
     state.selectedClient = null;
     $('#sale-client-clear').hidden = true;
@@ -1164,6 +1171,7 @@
       saleForm.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid'));
       showError($('#sale-error'), '');
       updateNotes();
+      syncDaysField();
     });
   });
   saleForm.addEventListener('input', (e) => {
@@ -1346,7 +1354,7 @@
     const timeSelect = $('#sale-time');
     const typedName = normName(comboInput.value);
     const cents = amountCents();
-    const days = radioValue('days');
+    const days = radioValue('plan') === 'diaria' ? DIARIA_DAYS : radioValue('days');
 
     // The client must be one from the list (picked, or typed exactly as registered)
     let client = state.selectedClient;
@@ -1414,7 +1422,9 @@
       celebrate(sub, receipt);
     } catch (err) {
       console.error(err);
-      showError(errBox, 'Erro ao salvar a venda. Verifique a internet e tente novamente.');
+      showError(errBox, err?.code === '23514' && radioValue('plan') === 'diaria'
+        ? 'Falta configurar a Diária: rode supabase/012_diaria.sql no Supabase.'
+        : 'Erro ao salvar a venda. Verifique a internet e tente novamente.');
     } finally {
       btn.disabled = false;
     }
@@ -1537,7 +1547,7 @@
         PLAN_LABEL[r.plan],
         isOwner && PAYMENT_LABEL[r.payment_method],
         r.class_time,
-        `${r.days_per_week}x/sem`,
+        daysLabel(r) && `${daysLabel(r)}x/sem`,
         `até ${fmtDate(parseISODate(r.plan_end))}`,
       ].filter(Boolean).join(' · '));
       const del = el('button', 'row-print row-del');
@@ -1637,7 +1647,7 @@
   function editEnd() {
     const start = $('#edit-start').value;
     const months = PLAN_MONTHS[editRadio('edit-plan')];
-    return start && months ? addMonths(parseISODate(start), months) : null;
+    return start && months != null ? addMonths(parseISODate(start), months) : null; // 0 = diária
   }
   function showEditEnd() {
     const end = editEnd();
@@ -1653,11 +1663,12 @@
     editForm.querySelectorAll('input[name="edit-plan"]').forEach((i) => { i.checked = i.value === r.plan; });
     // Older sales may have 1 or 4+ days: keep that value as an extra option instead of changing it silently
     const days = ['2', '3', '4', '5'];
-    if (!days.includes(r.days_per_week)) days.push(r.days_per_week);
+    if (r.plan !== 'diaria' && !days.includes(r.days_per_week)) days.push(r.days_per_week);
+    const checkedDays = days.includes(r.days_per_week) && r.plan !== 'diaria' ? r.days_per_week : '3'; // a Diária switched to a plan starts at 3
     $('#edit-days-pills').replaceChildren(...days.map((d) => {
       const label = el('label');
       const input = el('input');
-      input.type = 'radio'; input.name = 'edit-days'; input.value = d; input.checked = d === r.days_per_week;
+      input.type = 'radio'; input.name = 'edit-days'; input.value = d; input.checked = d === checkedDays;
       label.append(input, el('span', null, d));
       return label;
     }));
@@ -1668,6 +1679,7 @@
     time.value = r.class_time;
     setDateInput('edit-start', r.plan_start);
     showEditEnd();
+    $('#edit-days-field').hidden = r.plan === 'diaria';
     if (state.role === 'owner') {
       editAmount.value = fmtMoney(Number(r.amount));
       editForm.querySelectorAll('input[name="edit-payment"]').forEach((i) => { i.checked = i.value === r.payment_method; });
@@ -1697,7 +1709,11 @@
     }) : [el('li', 'combo-hint', 'Nenhum cliente encontrado.')]));
     editOptions.hidden = false;
   });
-  editForm.addEventListener('change', (e) => { if (e.target.name === 'edit-plan') showEditEnd(); });
+  editForm.addEventListener('change', (e) => {
+    if (e.target.name !== 'edit-plan') return;
+    showEditEnd();
+    $('#edit-days-field').hidden = e.target.value === 'diaria';
+  });
   $('#edit-start').addEventListener('change', () => { setDateInput('edit-start', $('#edit-start').value); showEditEnd(); });
   $('#edit-start').addEventListener('click', () => { try { $('#edit-start').showPicker(); } catch (_) { /* opens natively */ } });
   editAmount.addEventListener('input', () => { editAmount.value = fmtMoney(editCents() / 100); });
@@ -1725,7 +1741,7 @@
     const changes = {
       client_id: editClient.id,
       plan: editRadio('edit-plan'),
-      days_per_week: editRadio('edit-days'),
+      days_per_week: editRadio('edit-plan') === 'diaria' ? DIARIA_DAYS : editRadio('edit-days'),
       class_time: $('#edit-time').value,
     };
     const start = $('#edit-start').value;
@@ -1939,7 +1955,7 @@
 
     const panels = [grid, monthChart(months)];
 
-    const plans = groupBy(sales, (s) => s.plan, ['mensal', 'trimestral', 'semestral', 'anual']);
+    const plans = groupBy(sales, (s) => s.plan, ['diaria', 'mensal', 'trimestral', 'semestral', 'anual']);
     const topPlan = [...plans].sort((a, b) => b.count - a.count)[0];
     const plansPanel = insightPanel('Planos', `${PLAN_LABEL[topPlan.key] || topPlan.key} é o mais vendido: ${pct(topPlan.count, sales.length)}% das vendas`);
     plansPanel.append(hbars(plans.map((g) => ({ label: PLAN_LABEL[g.key] || g.key, value: g.count, text: `${pct(g.count, sales.length)}% · ${fmtMoney(g.total)}` }))));
@@ -1956,11 +1972,14 @@
     timesPanel.append(hbars(times.map((g) => ({ label: g.key, value: g.count, text: g.count === 1 ? '1 venda' : `${num.format(g.count)} vendas` }))));
     panels.push(timesPanel);
 
-    const days = groupBy(sales, (s) => s.days_per_week, ['2', '3', '4', '5']);
+    const days = groupBy(sales.filter((s) => s.plan !== 'diaria'), (s) => s.days_per_week, ['2', '3', '4', '5']);
     const topDays = [...days].sort((a, b) => b.count - a.count)[0];
-    const daysPanel = insightPanel('Dias por semana', `A maioria treina ${topDays.key}x por semana (${pct(topDays.count, sales.length)}%)`);
-    daysPanel.append(hbars(days.map((g) => ({ label: g.key.includes('+') ? g.key : `${g.key}x`, value: g.count, text: `${pct(g.count, sales.length)}%` }))));
-    panels.push(daysPanel);
+    const nPlans = days.reduce((n, g) => n + g.count, 0);
+    if (nPlans) {
+      const daysPanel = insightPanel('Dias por semana', `A maioria treina ${topDays.key}x por semana (${pct(topDays.count, nPlans)}%)`);
+      daysPanel.append(hbars(days.map((g) => ({ label: g.key.includes('+') ? g.key : `${g.key}x`, value: g.count, text: `${pct(g.count, nPlans)}%` }))));
+      panels.push(daysPanel);
+    }
 
     const weekdays = groupBy(sales, (s) => s.at.getDay(), [1, 2, 3, 4, 5, 6, 0]);
     const topWd = [...weekdays].sort((a, b) => b.count - a.count)[0];
@@ -1989,7 +2008,7 @@
       client: s.client_name,
       cpf: showCpf(s.cpf),
       plan: PLAN_LABEL[s.plan] || s.plan,
-      days: s.days_per_week === '4+' ? '4 ou mais' : s.days_per_week,
+      days: daysLabel(s),
       time: s.class_time,
       start: fmtDate(parseISODate(s.plan_start)),
       end: fmtDate(parseISODate(s.plan_end)),
@@ -2119,7 +2138,7 @@
       Number(r.amount).toFixed(2).replace('.', ','),
       PAYMENT_LABEL[r.payment_method],
       PLAN_LABEL[r.plan],
-      r.days_per_week,
+      daysLabel(r),
       r.class_time,
       fmtDate(parseISODate(r.plan_start)),
       fmtDate(parseISODate(r.plan_end)),
@@ -2278,7 +2297,7 @@
       `#${r.id}`,
       fmtDateTime(new Date(r.created_at)),
       r.client_name + (showCpf(r.clients?.cpf) ? `\n${showCpf(r.clients.cpf)}` : ''),
-      `${PLAN_LABEL[r.plan]} · ${r.days_per_week}x/sem\naté ${fmtDate(parseISODate(r.plan_end))}`,
+      `${PLAN_LABEL[r.plan]}${daysLabel(r) ? ` · ${daysLabel(r)}x/sem` : ''}\naté ${fmtDate(parseISODate(r.plan_end))}`,
       PAYMENT_LABEL[r.payment_method],
       r.class_time,
       r.signature || '—',
