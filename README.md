@@ -64,6 +64,9 @@ self.addEventListener('activate', (e) => e.waitUntil((async () => {
 })()));
 ```
 
+## Home-screen icon
+On Android, Chrome's menu → **Adicionar à tela inicial** / **Instalar app** installs the app with the emblem as its icon, opening full screen without the address bar ([`manifest.webmanifest`](manifest.webmanifest)). The icons are PNGs rendered from `img/emblem.svg`: after replacing the logo, run `sh scripts/make-icons.sh`, then `sh scripts/bump-version.sh`.
+
 ## Check that the teacher really can't see values
 1. Open the site, log in as **Professor**.
 2. Open the browser console (desktop Chrome: F12) and run:
