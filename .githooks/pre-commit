@@ -1,4 +1,6 @@
 #!/bin/sh
-# Re-stamps the css/js version tags in index.html on every commit (see scripts/bump-version.sh).
-sh scripts/bump-version.sh >/dev/null || exit 1
-git add index.html
+# Stamps css/js versions and the service worker cache name (scripts/bump-version.sh) on every commit,
+# so phones never keep old files. Enabled once per clone with: git config core.hooksPath .githooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+sh scripts/bump-version.sh >/dev/null || { echo "pre-commit: bump-version.sh failed" >&2; exit 1; }
+git add index.html sw.js

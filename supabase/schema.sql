@@ -33,9 +33,13 @@ $$;
 create table public.clients (
   id         bigint generated always as identity primary key,
   name       text not null,
-  cpf        text,
+  cpf        text,          -- 11 digits; '00000000000' = no CPF
+  phone      text check (phone is null or phone ~ '^\d{10,11}$'), -- DDD + number, digits only
   created_at timestamptz not null default now()
 );
+
+-- Every real CPF only once ('00000000000' = no CPF, can repeat).
+create unique index clients_cpf_unique on public.clients (cpf) where cpf is not null and cpf <> '00000000000';
 
 alter table public.clients enable row level security;
 
@@ -241,3 +245,54 @@ $$;
 
 revoke execute on function public.delete_sale(bigint) from public, anon;
 grant execute on function public.delete_sale(bigint) to authenticated;
+
+-- ─────────────────────────────────────────────
+-- "Editar venda" (Histórico, both logins). See 011_cpf_phone_edit_sale.sql.
+-- ─────────────────────────────────────────────
+-- edit_sale(): fixes a sale instead of deleting it (both logins). Same receipt number.
+-- The teacher can change client, plan, days, time and dates; amount, payment method and observação
+-- only change for the owner (ignored for the teacher). Returns only plan details, never the amount.
+create or replace function public.edit_sale(sale_id bigint, changes jsonb)
+returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  owner boolean := public.is_owner();
+  new_client_id bigint := (changes->>'client_id')::bigint;
+  new_client_name text;
+  r public.sales;
+begin
+  if not public.is_staff() then
+    raise exception 'only staff can edit sales' using errcode = '42501';
+  end if;
+  if new_client_id is not null then
+    select name into new_client_name from public.clients where id = new_client_id;
+    if new_client_name is null then
+      raise exception 'client not found' using errcode = 'P0002';
+    end if;
+  end if;
+  update public.sales s set
+    client_id      = coalesce(new_client_id, s.client_id),
+    client_name    = coalesce(new_client_name, s.client_name),
+    plan           = coalesce(changes->>'plan', s.plan),
+    days_per_week  = coalesce(changes->>'days_per_week', s.days_per_week),
+    class_time     = coalesce(changes->>'class_time', s.class_time),
+    plan_start     = coalesce((changes->>'plan_start')::date, s.plan_start),
+    plan_end       = coalesce((changes->>'plan_end')::date, s.plan_end),
+    amount         = case when owner and changes ? 'amount' then (changes->>'amount')::numeric else s.amount end,
+    payment_method = case when owner and changes ? 'payment_method' then changes->>'payment_method' else s.payment_method end,
+    notes          = case when owner and changes ? 'notes' then nullif(changes->>'notes', '') else s.notes end
+  where s.id = sale_id
+  returning s.* into r;
+  if not found then
+    raise exception 'sale not found' using errcode = 'P0002';
+  end if;
+  if r.plan_end < r.plan_start then
+    raise exception 'plan_end before plan_start' using errcode = '22023';
+  end if;
+  return json_build_object('id', r.id, 'client_id', r.client_id, 'client_name', r.client_name, 'plan', r.plan,
+    'days_per_week', r.days_per_week, 'class_time', r.class_time, 'plan_start', r.plan_start, 'plan_end', r.plan_end);
+end;
+$$;
+
+revoke execute on function public.edit_sale(bigint, jsonb) from public, anon;
+grant execute on function public.edit_sale(bigint, jsonb) to authenticated;

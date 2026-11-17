@@ -52,7 +52,18 @@
     return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
   };
   const normName = (s) => s.trim().replace(/\s+/g, ' ').toUpperCase();
-  const CPF_NONE = '00000000000'; // placeholder for clients registered without CPF (spreadsheet import)
+  const CPF_NONE = '00000000000'; // stored for every client without CPF; shown as "Sem CPF"
+  const showCpf = (cpf) => (cpf && cpf !== CPF_NONE ? fmtCpf(cpf) : ''); // '' = no CPF (null or CPF_NONE)
+  const fmtPhone = (digits) => {
+    const d = (digits || '').replace(/\D/g, '').slice(0, 11);
+    if (!d) return '';
+    if (d.length <= 2) return `(${d}`;
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  };
+  // "Maria Aparecida" from "MARIA APARECIDA SILVA" (WhatsApp greeting)
+  const firstName = (name) => (name.split(' ')[0] || '').toLowerCase().replace(/^\p{L}/u, (ch) => ch.toUpperCase());
 
   // ───────────────────────── Small UI helpers ─────────────────────────
   const el = (tag, className, text) => {
@@ -267,7 +278,8 @@
     $('#login-password').value = '';
     showError($('#login-error'), msg || '');
     // Never leave one login's history (with values) on screen or in memory for the next login.
-    historyCache.clear();
+    historyCache.clear(); state.insights = null;
+    $('#insights-body').replaceChildren();
     state.history = null;
     state.historyReq = null;
     clearListJob($('#history-list'));
@@ -331,10 +343,10 @@
   }
 
   // ───────────────────────── Navigation ─────────────────────────
-  const TITLES = { sale: 'Nova venda', history: 'Histórico', clients: 'Clientes', settings: 'Configurações' };
+  const TITLES = { sale: 'Nova venda', history: 'Histórico', clients: 'Clientes', insights: 'Insights', settings: 'Configurações' };
 
   function showView(name) {
-    if (name === 'settings' && state.role !== 'owner') name = 'sale';
+    if ((name === 'settings' || name === 'insights') && state.role !== 'owner') name = 'sale';
     for (const v of Object.keys(TITLES)) $(`#view-${v}`).hidden = v !== name;
     $$('.bottomnav [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
     $('#view-title').textContent = TITLES[name];
@@ -345,6 +357,7 @@
       $$('.pw-form').forEach((f) => { f.reset(); f.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid')); });
       $$('.pw-form .error').forEach((n) => showError(n, ''));
     }
+    if (name === 'insights') loadInsights();
     if (name === 'clients') {
       if (state.clientsDirty || state.clientsDay !== toISODate(new Date())) renderClients();
       if (Date.now() - state.subsAt > 60_000) loadSubscriptions(); // pick up sales made on other phones
@@ -355,9 +368,22 @@
   $$('.bottomnav [data-view]').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
 
   // ───────────────────────── Clients ─────────────────────────
+  // The phone column comes with supabase/011_cpf_phone_edit_sale.sql; until it runs, clients load without it
+  // and the WhatsApp fields stay hidden (so a deploy before the SQL never empties Clientes).
+  const isMissingPhone = (err) => !!err && (err.code === '42703' || err.code === 'PGRST204' || /phone/.test(err.message || ''));
+  state.hasPhone = false;
   async function loadClients() {
+    const query = (cols) => fetchAll(() => sb.from('clients').select(cols).order('name').order('id'));
     try {
-      state.clients = await fetchAll(() => sb.from('clients').select('id, name, cpf').order('name').order('id'));
+      try {
+        state.clients = await query('id, name, cpf, phone');
+        state.hasPhone = true;
+      } catch (err) {
+        if (!isMissingPhone(err)) throw err;
+        state.clients = await query('id, name, cpf');
+        state.hasPhone = false;
+      }
+      $$('.phone-field').forEach((n) => { n.hidden = !state.hasPhone; });
     } catch (err) {
       console.error(err);
       toast('Erro ao carregar clientes.');
@@ -406,17 +432,69 @@
     });
   }
 
-  function renderClients() {
+  // Days until the client's plan ends (negative = expired), null = no plan. Class as in subStatus().
+  function subDays(clientId) {
+    const sub = state.subs?.get(clientId);
+    return sub ? Math.round((parseISODate(sub.plan_end) - startOfDay(new Date())) / 864e5) : null;
+  }
+  const statusOf = (days) => (days == null ? 'none' : days < 0 ? 'expired' : days <= 7 ? 'soon' : 'active');
+
+  // WhatsApp link with a renewal message that fits the plan status
+  function whatsappLink(c) {
+    const sub = state.subs?.get(c.id);
+    const days = subDays(c.id);
+    const plan = sub ? `seu plano ${PLAN_LABEL[sub.plan] || sub.plan}` : '';
+    const end = sub ? fmtDate(parseISODate(sub.plan_end)) : '';
+    let text = `Olá, ${firstName(c.name)}!`;
+    if (days != null && days < 0) text += ` ${plan[0].toUpperCase() + plan.slice(1)} no Studio Fitness venceu em ${end}. Bora voltar a treinar? 💪`;
+    else if (days === 0) text += ` ${plan[0].toUpperCase() + plan.slice(1)} no Studio Fitness vence hoje. Bora renovar? 💪`;
+    else if (days != null && days <= 7) text += ` ${plan[0].toUpperCase() + plan.slice(1)} no Studio Fitness vence em ${end}. Bora renovar? 💪`;
+    return `https://wa.me/55${c.phone}?text=${encodeURIComponent(text)}`;
+  }
+
+  const FILTER_EMPTY = {
+    soon: 'Nenhum plano vencendo nos próximos 7 dias.',
+    expired: 'Nenhum plano vencido.',
+    active: 'Nenhum cliente com plano ativo.',
+    none: 'Todos os clientes têm plano.',
+  };
+  state.clientFilter = 'all';
+
+  // Counts per status on the filter chips (all clients, ignoring the search)
+  function renderClientFilters() {
+    const box = $('#client-filters');
+    box.hidden = !state.subs;
+    if (!state.subs) return;
+    const counts = { all: state.clients.length, soon: 0, expired: 0, active: 0, none: 0 };
+    for (const c of state.clients) counts[statusOf(subDays(c.id))]++;
+    box.querySelectorAll('.chip').forEach((chip) => {
+      chip.querySelector('.chip-count').textContent = num.format(counts[chip.dataset.filter]);
+      chip.classList.toggle('active', chip.dataset.filter === state.clientFilter);
+    });
+  }
+
+  function renderClients({ counts = true } = {}) {
     state.clientsDirty = false;
     state.clientsDay = toISODate(new Date());
+    if (counts) renderClientFilters();
     const q = $('#clients-search').value.trim();
-    renderList($('#clients-list'), matchClients(q), (c) => {
+    let items = matchClients(q);
+    const f = state.subs ? state.clientFilter : 'all';
+    if (f !== 'all') {
+      items = items.filter((c) => statusOf(subDays(c.id)) === f);
+      const end = (c) => state.subs.get(c.id).plan_end;
+      // Vencendo: soonest first. Vencidos: most recent first (the likeliest to renew).
+      if (f === 'soon') items.sort((a, b) => end(a).localeCompare(end(b)));
+      if (f === 'expired') items.sort((a, b) => end(b).localeCompare(end(a)));
+    }
+    const empty = q ? 'Nenhum cliente encontrado.' : (FILTER_EMPTY[f] || 'Nenhum cliente cadastrado.');
+    renderList($('#clients-list'), items, (c) => {
       const li = el('li');
       const parts = c.name.split(' ').filter(Boolean);
       const initials = (parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
       const info = el('div');
       info.append(el('div', 'row-name', c.name));
-      if (c.cpf) info.append(el('div', 'row-meta', fmtCpf(c.cpf)));
+      info.append(el('div', 'row-meta', [showCpf(c.cpf) || 'Sem CPF', fmtPhone(c.phone)].filter(Boolean).join(' · ')));
       if (state.subs) {
         const st = subStatus(c.id);
         const line = el('div', `sub sub-${st.cls}`);
@@ -425,15 +503,36 @@
         info.append(line);
       }
       li.append(el('span', 'avatar', initials), info);
+      if (c.phone) {
+        const wa = el('a', 'row-wa');
+        wa.href = whatsappLink(c);
+        wa.target = '_blank';
+        wa.rel = 'noopener';
+        wa.setAttribute('aria-label', `WhatsApp de ${c.name}`);
+        wa.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-wa"/></svg>';
+        wa.addEventListener('click', (e) => e.stopPropagation()); // don't open the edit form
+        li.append(wa);
+      }
       li.addEventListener('click', () => openClientForm(c));
       return li;
-    }, el('li', 'muted', q ? 'Nenhum cliente encontrado.' : 'Nenhum cliente cadastrado.'), { lazy: true });
+    }, el('li', 'muted', empty), { lazy: true });
   }
+
+  $('#client-filters').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    state.clientFilter = chip.dataset.filter;
+    $$('#client-filters .chip').forEach((c) => c.classList.toggle('active', c === chip));
+    chip.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    renderClients({ counts: false });
+    window.scrollTo(0, 0);
+  });
 
   function openClientForm(c) {
     $('#client-id').value = c?.id ?? '';
     $('#client-name').value = c?.name ?? '';
-    $('#client-cpf').value = fmtCpf(c?.cpf ?? '');
+    $('#client-cpf').value = showCpf(c?.cpf);
+    $('#client-phone').value = fmtPhone(c?.phone);
     showError($('#client-error'), '');
     $('#client-form').hidden = false;
     $('#client-name').focus();
@@ -452,25 +551,37 @@
   clientsSearch.addEventListener('input', () => {
     clientsSearchClear.hidden = !clientsSearch.value;
     cancelAnimationFrame(clientsSearchFrame);
-    clientsSearchFrame = requestAnimationFrame(renderClients);
+    clientsSearchFrame = requestAnimationFrame(() => renderClients({ counts: false }));
   });
   $('#client-new').addEventListener('click', () => openClientForm(null));
   $('#client-cancel').addEventListener('click', () => { $('#client-form').hidden = true; });
   $('#client-cpf').addEventListener('input', (e) => { e.target.value = fmtCpf(e.target.value); });
+  ['#client-phone', '#modal-client-phone'].forEach((sel) => $(sel).addEventListener('input', (e) => { e.target.value = fmtPhone(e.target.value); }));
+
+  // Shared checks of both client forms. Returns { row } or { error }.
+  function clientRow(nameInput, cpfInput, phoneInput, selfId) {
+    const name = normName(nameInput.value);
+    const cpf = cpfInput.value.replace(/\D/g, '') || CPF_NONE;
+    const phone = phoneInput.value.replace(/\D/g, '');
+    if (!name) return { error: 'Informe o nome.' };
+    if (cpf.length !== 11) return { error: 'CPF deve ter 11 dígitos (ou deixe em branco).' };
+    const dup = cpf !== CPF_NONE && state.clients.find((c) => c.cpf === cpf && String(c.id) !== String(selfId ?? ''));
+    if (dup) return { error: `CPF já cadastrado para ${dup.name}.` };
+    if (phone && phone.length !== 10 && phone.length !== 11) return { error: 'WhatsApp com DDD: (35) 99999-9999.' };
+    return { row: { name, cpf, ...(state.hasPhone ? { phone: phone || null } : {}) } };
+  }
+  const saveErrorText = (error, fallback) => (error?.code === '23505' ? 'CPF já cadastrado para outro cliente.' : fallback);
 
   $('#client-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = $('#client-id').value;
-    const name = normName($('#client-name').value);
-    const cpf = $('#client-cpf').value.replace(/\D/g, '');
-    if (!name) return showError($('#client-error'), 'Informe o nome.');
-    if (cpf && cpf.length !== 11) return showError($('#client-error'), 'CPF deve ter 11 dígitos.');
+    const { row, error: invalid } = clientRow($('#client-name'), $('#client-cpf'), $('#client-phone'), id);
+    if (invalid) return showError($('#client-error'), invalid);
 
-    const row = { name, cpf: cpf || null };
     const { error } = id
       ? await sb.from('clients').update(row).eq('id', id)
       : await sb.from('clients').insert(row);
-    if (error) { console.error(error); return showError($('#client-error'), 'Erro ao salvar cliente.'); }
+    if (error) { console.error(error); return showError($('#client-error'), saveErrorText(error, 'Erro ao salvar cliente.')); }
 
     $('#client-form').hidden = true;
     toast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
@@ -812,7 +923,7 @@
     const noCpf = fresh.filter((r) => r.cpf === CPF_NONE).length;
     const skipped = rows.length - fresh.length;
     status.textContent = `${num.format(rows.length)} clientes na planilha: ${num.format(fresh.length)} novos`
-      + (noCpf ? ` (${num.format(noCpf)} sem CPF, ficam com 000.000.000-00)` : '')
+      + (noCpf ? ` (${num.format(noCpf)} sem CPF)` : '')
       + (skipped ? `, ${num.format(skipped)} já cadastrados ou repetidos.` : '.');
     status.hidden = false;
     if (!fresh.length) return;
@@ -845,7 +956,9 @@
     } catch (err) {
       console.error(err);
       status.textContent = `${num.format(done)} de ${num.format(rows.length)} clientes cadastrados.`;
-      showError(errBox, 'A importação parou (verifique a internet). Escolha a planilha de novo para cadastrar o que faltou.');
+      showError(errBox, err?.code === '23505'
+        ? 'A importação parou: um CPF da planilha já está cadastrado (talvez em outro celular agora há pouco). Escolha a planilha de novo para cadastrar o que faltou.'
+        : 'A importação parou (verifique a internet). Escolha a planilha de novo para cadastrar o que faltou.');
     } finally {
       await loadClients(); // the next file is compared against the clients just saved, so nothing repeats
       btn.disabled = false;
@@ -905,7 +1018,7 @@
       $('#wipe-btn').disabled = true;
       $('#wipe-hint').hidden = false;
       $('#backup-status').hidden = true;
-      historyCache.clear();
+      historyCache.clear(); state.insights = null;
       state.subs = state.subs && new Map();
       loadClients();
       loadSubscriptions();
@@ -1074,7 +1187,9 @@
     if (!words.length) return state.clients;
     return state.clients.filter((c) => {
       const name = c.key ?? searchKey(c.name);
-      return words.every((w) => name.includes(w)) || (digits.length >= 3 && (c.cpf || '').includes(digits));
+      return words.every((w) => name.includes(w))
+        || (digits.length >= 3 && c.cpf && c.cpf !== CPF_NONE && c.cpf.includes(digits)) // "000" mustn't list everyone without CPF
+        || (digits.length >= 4 && !!c.phone && c.phone.includes(digits));
     });
   }
 
@@ -1103,7 +1218,7 @@
     comboItems = [];
     const nodes = found.slice(0, COMBO_MAX).map((c) => comboOption(`opt-${c.id}`, null, [
       el('span', 'combo-name', c.name),
-      ...(c.cpf ? [el('span', 'combo-cpf', fmtCpf(c.cpf))] : []),
+      ...(showCpf(c.cpf) ? [el('span', 'combo-cpf', showCpf(c.cpf))] : []),
     ], () => selectClient(c)));
 
     if (found.length > COMBO_MAX) nodes.push(el('li', 'combo-hint', `+${found.length - COMBO_MAX} clientes… continue digitando`));
@@ -1195,6 +1310,7 @@
     const isName = /\p{L}/u.test(q || '');
     modalName.value = isName ? normName(q) : '';
     modalCpf.value = isName ? '' : fmtCpf(q || '');
+    $('#modal-client-phone').value = '';
     showError($('#modal-client-error'), '');
     clientModal.showModal();
     (modalName.value ? modalCpf : modalName).focus();
@@ -1207,18 +1323,14 @@
   $('#client-modal-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errBox = $('#modal-client-error');
-    const name = normName(modalName.value);
-    const cpf = modalCpf.value.replace(/\D/g, '');
-    if (!name) return showError(errBox, 'Informe o nome.');
-    if (cpf && cpf.length !== 11) return showError(errBox, 'CPF deve ter 11 dígitos.');
-    const dup = cpf && cpf !== CPF_NONE && state.clients.find((c) => c.cpf === cpf);
-    if (dup) return showError(errBox, `CPF já cadastrado para ${dup.name}.`);
+    const { row, error: invalid } = clientRow(modalName, modalCpf, $('#modal-client-phone'), null);
+    if (invalid) return showError(errBox, invalid);
 
     const btn = e.submitter || $('#client-modal-form button[type="submit"]');
     btn.disabled = true;
-    const { data, error } = await sb.from('clients').insert({ name, cpf: cpf || null }).select('id, name, cpf').single();
+    const { data, error } = await sb.from('clients').insert(row).select(state.hasPhone ? 'id, name, cpf, phone' : 'id, name, cpf').single();
     btn.disabled = false;
-    if (error) { console.error(error); return showError(errBox, 'Erro ao cadastrar. Verifique a internet.'); }
+    if (error) { console.error(error); return showError(errBox, saveErrorText(error, 'Erro ao cadastrar. Verifique a internet.')); }
 
     data.key = searchKey(data.name);
     state.clients = [...state.clients, data].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
@@ -1288,7 +1400,7 @@
       }
       const sub = saved.id ? `#${saved.id} · ${clientName}` : clientName;
       const receipt = receiptData({ ...row, id: saved.id, created_at: saved.created_at, cpf: client.cpf });
-      historyCache.clear();
+      historyCache.clear(); state.insights = null;
       // Show the new plan in Clientes right away (the server copy refreshes in the background).
       if (state.subs) {
         const prev = state.subs.get(client.id);
@@ -1380,7 +1492,7 @@
     try {
       rows = await fetchAll(() => (state.role === 'owner'
         ? sb.from('sales')
-          .select('id, created_at, client_name, amount, payment_method, class_time, plan, days_per_week, plan_start, plan_end, notes, signature, clients(cpf)')
+          .select('id, created_at, client_id, client_name, amount, payment_method, class_time, plan, days_per_week, plan_start, plan_end, notes, signature, clients(cpf)')
           .gte('created_at', range[0].toISOString())
           .lt('created_at', range[1].toISOString())
         : sb.rpc('staff_history', { from_ts: range[0].toISOString(), to_ts: range[1].toISOString() }))
@@ -1433,9 +1545,14 @@
       del.setAttribute('aria-label', `Apagar venda #${r.id}`);
       del.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg>';
       del.addEventListener('click', () => askDeleteSale(r));
+      const edit = el('button', 'row-print row-del');
+      edit.type = 'button';
+      edit.setAttribute('aria-label', `Editar venda #${r.id}`);
+      edit.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg>';
+      edit.addEventListener('click', () => openEditSale(r));
       const btns = el('span', 'row-actions');
       if (isOwner) btns.append(print); // the receipt has the amount: Anderson only
-      btns.append(del);
+      btns.append(edit, del);
       const bottom = el('div', 'row row-bottom');
       bottom.append(meta, btns);
       li.append(top, mid, bottom);
@@ -1481,7 +1598,7 @@
       } else {
         return showError($('#del-modal-error'), 'Falta configurar: rode supabase/008_delete_sale.sql no Supabase.');
       }
-      historyCache.clear();
+      historyCache.clear(); state.insights = null;
       loadSubscriptions();
       if (!deleted) { // already deleted on another phone, or not allowed (the database deletes nothing)
         delModal.close();
@@ -1500,6 +1617,360 @@
     }
   });
 
+  // ───────────────────────── Editar venda (Histórico, both logins) ─────────────────────────
+  // Fixes a sale in place through edit_sale() (supabase/011_cpf_phone_edit_sale.sql): same receipt number.
+  // The Professor can change client, plan, days, time and start date; value, payment and observação are
+  // Anderson's only (hidden for the Professor, and the database ignores them from that login anyway).
+  const editModal = $('#edit-modal');
+  const editForm = $('#edit-form');
+  const editAmount = $('#edit-amount');
+  let editSale = null;   // the history row being edited
+  let editClient = null; // { id, name, cpf } picked in the dialog
+  const editRadio = (name) => editForm.querySelector(`input[name="${name}"]:checked`)?.value;
+  const editCents = () => parseInt(editAmount.value.replace(/\D/g, '') || '0', 10);
+
+  // Same pills and times as the sale form
+  $('#edit-plan-pills').innerHTML = saleForm.querySelector('.pills-plan').innerHTML.replace(/name="plan"/g, 'name="edit-plan"');
+  $('#edit-pay-pills').innerHTML = saleForm.querySelector('.pills-pay').innerHTML.replace(/name="payment"/g, 'name="edit-payment"');
+  $('#edit-time').replaceChildren(...$$('#sale-time option').filter((o) => o.value).map((o) => o.cloneNode(true)));
+
+  function editEnd() {
+    const start = $('#edit-start').value;
+    const months = PLAN_MONTHS[editRadio('edit-plan')];
+    return start && months ? addMonths(parseISODate(start), months) : null;
+  }
+  function showEditEnd() {
+    const end = editEnd();
+    $('#edit-end').textContent = end ? `Vence em ${fmtDate(end)}` : '';
+  }
+
+  function openEditSale(r) {
+    editSale = r;
+    editClient = state.clients.find((c) => c.id === r.client_id) || (r.client_id ? { id: r.client_id, name: r.client_name } : null);
+    $('#edit-heading').textContent = `Editar venda #${r.id}`;
+    $('#edit-client').value = r.client_name;
+    $('#edit-client-options').hidden = true;
+    editForm.querySelectorAll('input[name="edit-plan"]').forEach((i) => { i.checked = i.value === r.plan; });
+    // Older sales may have 1 or 4+ days: keep that value as an extra option instead of changing it silently
+    const days = ['2', '3', '4', '5'];
+    if (!days.includes(r.days_per_week)) days.push(r.days_per_week);
+    $('#edit-days-pills').replaceChildren(...days.map((d) => {
+      const label = el('label');
+      const input = el('input');
+      input.type = 'radio'; input.name = 'edit-days'; input.value = d; input.checked = d === r.days_per_week;
+      label.append(input, el('span', null, d));
+      return label;
+    }));
+    const time = $('#edit-time');
+    if (![...time.options].some((o) => o.value === r.class_time)) {
+      const o = el('option', null, r.class_time); o.value = r.class_time; time.prepend(o);
+    }
+    time.value = r.class_time;
+    setDateInput('edit-start', r.plan_start);
+    showEditEnd();
+    if (state.role === 'owner') {
+      editAmount.value = fmtMoney(Number(r.amount));
+      editForm.querySelectorAll('input[name="edit-payment"]').forEach((i) => { i.checked = i.value === r.payment_method; });
+      $('#edit-notes').value = r.notes || '';
+    }
+    showError($('#edit-error'), '');
+    editModal.showModal();
+    editModal.querySelector('.panel').scrollTop = 0;
+  }
+
+  // Client: type to search, tap to pick (at most 8 matches)
+  const editClientInput = $('#edit-client');
+  const editOptions = $('#edit-client-options');
+  editClientInput.addEventListener('input', () => {
+    const q = editClientInput.value.trim();
+    if (!q) { editOptions.hidden = true; return; }
+    const found = matchClients(q).slice(0, 8);
+    editOptions.replaceChildren(...(found.length ? found.map((c) => {
+      const li = el('li');
+      li.append(el('span', 'combo-name', c.name), ...(showCpf(c.cpf) ? [el('span', 'combo-cpf', showCpf(c.cpf))] : []));
+      li.addEventListener('click', () => {
+        editClient = c;
+        editClientInput.value = c.name;
+        editOptions.hidden = true;
+      });
+      return li;
+    }) : [el('li', 'combo-hint', 'Nenhum cliente encontrado.')]));
+    editOptions.hidden = false;
+  });
+  editForm.addEventListener('change', (e) => { if (e.target.name === 'edit-plan') showEditEnd(); });
+  $('#edit-start').addEventListener('change', () => { setDateInput('edit-start', $('#edit-start').value); showEditEnd(); });
+  $('#edit-start').addEventListener('click', () => { try { $('#edit-start').showPicker(); } catch (_) { /* opens natively */ } });
+  editAmount.addEventListener('input', () => { editAmount.value = fmtMoney(editCents() / 100); });
+  $('#edit-cancel').addEventListener('click', () => editModal.close());
+  editModal.addEventListener('click', (e) => { if (e.target === editModal) editModal.close(); }); // tap on backdrop
+  editModal.addEventListener('close', () => { editSale = null; });
+
+  // Put the saved sale back into the open list and every cached period that has it
+  function patchHistoryRow(id, patch) {
+    const fix = (rows) => rows.map((x) => (x.id === id ? { ...x, ...patch } : x));
+    for (const entry of historyCache.values()) entry.rows = fix(entry.rows);
+    const h = state.history;
+    if (h) renderHistory(h.key, h.range, fix(h.rows));
+  }
+
+  editForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const r = editSale;
+    if (!r) return editModal.close();
+    const errBox = $('#edit-error');
+    const isOwner = state.role === 'owner';
+    if (!editClient || editClientInput.value.trim() !== editClient.name) return showError(errBox, 'Escolha o cliente na lista.');
+    const end = editEnd();
+    if (!end) return showError(errBox, 'Informe o início do plano.');
+    const changes = {
+      client_id: editClient.id,
+      plan: editRadio('edit-plan'),
+      days_per_week: editRadio('edit-days'),
+      class_time: $('#edit-time').value,
+    };
+    const start = $('#edit-start').value;
+    if (changes.plan !== r.plan || start !== r.plan_start) { // otherwise keep the dates exactly as they were
+      changes.plan_start = start;
+      changes.plan_end = toISODate(end);
+    }
+    if (isOwner) {
+      if (editCents() <= 0) return showError(errBox, 'Informe o valor.');
+      changes.amount = editCents() / 100;
+      changes.payment_method = editRadio('edit-payment');
+      changes.notes = $('#edit-notes').value.trim();
+    }
+    const btn = $('#edit-ok');
+    btn.disabled = true;
+    try {
+      const { data, error } = await sb.rpc('edit_sale', { sale_id: r.id, changes });
+      if (error) {
+        console.error(error);
+        return showError(errBox, error.code === 'PGRST202' ? 'Falta configurar: rode supabase/011_cpf_phone_edit_sale.sql no Supabase.'
+          : error.code === 'P0002' ? 'Essa venda (ou o cliente) não existe mais. Atualize o histórico.'
+            : 'Não foi possível salvar. Verifique a internet e tente de novo.');
+      }
+      editModal.close();
+      const client = state.clients.find((c) => c.id === data.client_id);
+      patchHistoryRow(r.id, {
+        ...data,
+        ...(isOwner ? { amount: changes.amount, payment_method: changes.payment_method, notes: changes.notes || null } : {}),
+        clients: { cpf: client?.cpf ?? null },
+      });
+      state.insights = null;
+      loadSubscriptions();
+      toast(`Venda #${r.id} atualizada.`);
+    } catch (err) {
+      console.error(err);
+      showError(errBox, 'Sem conexão. Tente de novo.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ───────────────────────── Insights (Anderson only) ─────────────────────────
+  // The last 12 months of sales (this month included), grouped by the phone's local time, never by the
+  // UTC date (a sale at 22:00 in Brazil is already the next day in UTC). Charts are plain HTML bars in
+  // one color: values are always written next to them, so nothing depends on color alone.
+  const MONTHS_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+  const INSIGHTS_FRESH_MS = 60 * 1000;
+  state.insights = null; // { at, rows }
+  const pct = (part, total) => (total ? Math.round((part / total) * 100) : 0);
+
+  async function loadInsights() {
+    const status = $('#insights-status');
+    if (state.insights) renderInsights(state.insights.rows);
+    if (state.insights && Date.now() - state.insights.at < INSIGHTS_FRESH_MS) return;
+    if (!state.insights) { status.textContent = 'Carregando…'; $('#insights-body').replaceChildren(); }
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    try {
+      const rows = await fetchAll(() => sb.from('sales')
+        .select('id, created_at, amount, payment_method, plan, days_per_week, class_time')
+        .gte('created_at', from.toISOString())
+        .order('created_at').order('id'));
+      if (state.role !== 'owner') return; // logged out meanwhile
+      state.insights = { at: Date.now(), rows };
+      if (!$('#view-insights').hidden) renderInsights(rows);
+    } catch (err) {
+      console.error(err);
+      if (!state.insights) status.textContent = 'Erro ao carregar. Verifique a internet.';
+    }
+  }
+
+  function insightPanel(title, sub) {
+    const panel = el('section', 'panel insight');
+    panel.append(el('div', 'panel-head', title));
+    if (sub) panel.append(el('p', 'insight-sub', sub));
+    return panel;
+  }
+
+  // Comparison line: "▲ 12% vs 1–16 de outubro" (arrow + text, not color alone)
+  function deltaLine(cur, prev, label) {
+    if (!prev) return el('span', 'kpi-delta', cur ? `sem vendas em ${label}` : '');
+    const d = Math.round(((cur - prev) / prev) * 100);
+    const node = el('span', `kpi-delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}`, `${d > 0 ? '▲' : d < 0 ? '▼' : '='} ${Math.abs(d)}% vs ${label}`);
+    return node;
+  }
+
+  function kpi(label, value, extra) {
+    const tile = el('div', 'kpi');
+    tile.append(el('span', 'kpi-label', label), el('strong', 'kpi-value', value));
+    if (extra) tile.append(extra);
+    return tile;
+  }
+
+  // Horizontal bars: [{ label, value, text }] — bar length = value / biggest value
+  function hbars(items) {
+    const max = Math.max(1, ...items.map((i) => i.value));
+    const list = el('ul', 'hbars');
+    for (const it of items) {
+      const li = el('li', 'hbar');
+      const track = el('span', 'hbar-track');
+      const fill = el('span', 'hbar-fill');
+      fill.style.width = `${(it.value / max) * 100}%`;
+      track.append(fill);
+      li.append(el('span', 'hbar-label', it.label), track, el('span', 'hbar-value', it.text));
+      list.append(li);
+    }
+    return list;
+  }
+
+  // Count and revenue per key, biggest first (or in the given key order)
+  function groupBy(sales, keyOf, order) {
+    const map = new Map((order || []).map((k) => [k, { key: k, count: 0, total: 0 }]));
+    for (const sale of sales) {
+      const k = keyOf(sale);
+      if (!map.has(k)) map.set(k, { key: k, count: 0, total: 0 });
+      const g = map.get(k);
+      g.count++; g.total += sale.value;
+    }
+    const groups = [...map.values()];
+    return order ? groups.filter((g) => g.count || order.includes(g.key)) : groups.sort((a, b) => b.count - a.count);
+  }
+
+  function monthChart(months) {
+    const max = Math.max(1, ...months.map((m) => m.total));
+    const best = months.reduce((a, b) => (b.total > a.total ? b : a));
+    const withSales = months.filter((m) => m.count);
+    const avg = withSales.length ? withSales.reduce((n, m) => n + m.total, 0) / withSales.length : 0;
+    const panel = insightPanel('Receita por mês', `Média de ${fmtMoney(avg)} por mês com vendas · melhor: ${MONTHS_SHORT[best.m]}/${String(best.y).slice(2)} (${fmtMoney(best.total)})`);
+    const readout = el('p', 'chart-readout');
+    const bars = el('div', 'mbars');
+    const select = (i) => {
+      const m = months[i];
+      readout.replaceChildren(el('strong', null, fmtMoney(m.total)),
+        ` · ${m.count === 1 ? '1 venda' : `${num.format(m.count)} vendas`} · ${MONTHS_LONG[m.m]} de ${m.y}`);
+      [...bars.children].forEach((b, k) => b.classList.toggle('selected', k === i));
+    };
+    months.forEach((m, i) => {
+      const b = el('button', `mbar${i === months.length - 1 ? ' current' : ''}`);
+      b.type = 'button';
+      b.setAttribute('aria-label', `${MONTHS_LONG[m.m]} de ${m.y}: ${fmtMoney(m.total)}, ${m.count} vendas`);
+      const fill = el('span', 'mbar-fill');
+      fill.style.height = m.total ? `${Math.max(2, (m.total / max) * 100)}%` : '0';
+      const col = el('span', 'mbar-col');
+      col.append(fill);
+      b.append(col, el('span', 'mbar-label', MONTHS_SHORT[m.m]));
+      b.addEventListener('click', () => select(i));
+      bars.append(b);
+    });
+    select(months.length - 1);
+    panel.append(readout, bars);
+    return panel;
+  }
+
+  function renderInsights(rows) {
+    const body = $('#insights-body');
+    const now = new Date();
+    $('#insights-status').textContent = rows.length
+      ? `${num.format(rows.length)} vendas desde ${MONTHS_LONG[new Date(now.getFullYear(), now.getMonth() - 11, 1).getMonth()]} de ${now.getFullYear() - (now.getMonth() < 11 ? 1 : 0)}`
+      : '';
+    const sales = rows.map((r) => ({ ...r, at: new Date(r.created_at), value: Number(r.amount) }));
+
+    // Clients (from client_subscriptions(), also works with no sales in the period)
+    let active = 0, soon = 0;
+    if (state.subs) for (const c of state.clients) { const st = statusOf(subDays(c.id)); if (st === 'active') active++; if (st === 'soon') soon++; }
+    const soonLink = el('button', 'kpi-link', soon ? `${num.format(soon)} vencendo em 7 dias →` : 'nenhum vencendo em 7 dias');
+    soonLink.type = 'button';
+    soonLink.addEventListener('click', () => {
+      state.clientFilter = 'soon';
+      $('#clients-search').value = '';
+      $('#clients-search-clear').hidden = true;
+      state.clientsDirty = true;
+      showView('clients');
+    });
+    const clientsTile = kpi('Clientes com plano', state.subs ? num.format(active + soon) : '—', soonLink);
+
+    if (!sales.length) {
+      const grid = el('div', 'kpis');
+      grid.append(clientsTile);
+      body.replaceChildren(grid, el('p', 'insights-empty', 'Ainda não há vendas nos últimos 12 meses. Os gráficos aparecem com as primeiras vendas.'));
+      return;
+    }
+
+    // Months (local time), oldest → this month
+    const months = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1);
+      return { y: d.getFullYear(), m: d.getMonth(), total: 0, count: 0 };
+    });
+    for (const sale of sales) {
+      const k = (sale.at.getFullYear() - months[0].y) * 12 + sale.at.getMonth() - months[0].m;
+      if (k >= 0 && k < 12) { months[k].total += sale.value; months[k].count++; }
+    }
+    const cur = months[11], prev = months[10];
+    // This month so far vs the same days of last month (1st up to today's day and time)
+    const prevStart = new Date(prev.y, prev.m, 1);
+    const curStart = new Date(cur.y, cur.m, 1);
+    const cutoff = new Date(Math.min(new Date(prev.y, prev.m, now.getDate(), now.getHours(), now.getMinutes()), curStart));
+    const prevSame = sales.filter((s) => s.at >= prevStart && s.at < cutoff);
+    const prevSameTotal = prevSame.reduce((n, s) => n + s.value, 0);
+    const sameLabel = `1–${Math.min(now.getDate(), new Date(cur.y, cur.m, 0).getDate())} de ${MONTHS_SHORT[prev.m]}`;
+    const total12 = sales.reduce((n, s) => n + s.value, 0);
+
+    const grid = el('div', 'kpis');
+    grid.append(
+      kpi(`Receita em ${MONTHS_LONG[cur.m]}`, fmtMoney(cur.total), deltaLine(cur.total, prevSameTotal, sameLabel)),
+      kpi(`Vendas em ${MONTHS_LONG[cur.m]}`, num.format(cur.count), deltaLine(cur.count, prevSame.length, sameLabel)),
+      kpi('Ticket médio', fmtMoney(total12 / sales.length), el('span', 'kpi-delta', 'últimos 12 meses')),
+      clientsTile,
+    );
+
+    const panels = [grid, monthChart(months)];
+
+    const plans = groupBy(sales, (s) => s.plan, ['mensal', 'trimestral', 'semestral', 'anual']);
+    const topPlan = [...plans].sort((a, b) => b.count - a.count)[0];
+    const plansPanel = insightPanel('Planos', `${PLAN_LABEL[topPlan.key] || topPlan.key} é o mais vendido: ${pct(topPlan.count, sales.length)}% das vendas`);
+    plansPanel.append(hbars(plans.map((g) => ({ label: PLAN_LABEL[g.key] || g.key, value: g.count, text: `${pct(g.count, sales.length)}% · ${fmtMoney(g.total)}` }))));
+    panels.push(plansPanel);
+
+    const pays = groupBy(sales, (s) => s.payment_method, ['pix', 'credito', 'debito', 'dinheiro']);
+    const topPay = [...pays].sort((a, b) => b.total - a.total)[0];
+    const payPanel = insightPanel('Forma de pagamento', `${PAYMENT_LABEL[topPay.key] || topPay.key} traz ${pct(topPay.total, total12)}% da receita`);
+    payPanel.append(hbars(pays.map((g) => ({ label: PAYMENT_LABEL[g.key] || g.key, value: g.total, text: `${pct(g.total, total12)}% · ${fmtMoney(g.total)}` }))));
+    panels.push(payPanel);
+
+    const times = groupBy(sales, (s) => s.class_time).slice(0, 6);
+    const timesPanel = insightPanel('Horários mais procurados', `${times[0].key} é o horário com mais vendas`);
+    timesPanel.append(hbars(times.map((g) => ({ label: g.key, value: g.count, text: g.count === 1 ? '1 venda' : `${num.format(g.count)} vendas` }))));
+    panels.push(timesPanel);
+
+    const days = groupBy(sales, (s) => s.days_per_week, ['2', '3', '4', '5']);
+    const topDays = [...days].sort((a, b) => b.count - a.count)[0];
+    const daysPanel = insightPanel('Dias por semana', `A maioria treina ${topDays.key}x por semana (${pct(topDays.count, sales.length)}%)`);
+    daysPanel.append(hbars(days.map((g) => ({ label: g.key.includes('+') ? g.key : `${g.key}x`, value: g.count, text: `${pct(g.count, sales.length)}%` }))));
+    panels.push(daysPanel);
+
+    const weekdays = groupBy(sales, (s) => s.at.getDay(), [1, 2, 3, 4, 5, 6, 0]);
+    const topWd = [...weekdays].sort((a, b) => b.count - a.count)[0];
+    const wdPanel = insightPanel('Dias com mais vendas', `${WEEKDAYS[topWd.key]} é o dia que mais vende (${pct(topWd.count, sales.length)}%)`);
+    wdPanel.append(hbars(weekdays.map((g) => ({ label: WEEKDAYS[g.key].slice(0, 3), value: g.count, text: g.count === 1 ? '1 venda' : `${num.format(g.count)} vendas` }))));
+    panels.push(wdPanel);
+
+    body.replaceChildren(...panels);
+  }
+
   // ───────────────────────── Export (CSV / PDF) ─────────────────────────
   const GYM = {
     phone: '(35) 3292-6830',
@@ -1516,7 +1987,7 @@
       number: s.id ? String(s.id) : '',
       when: fmtDateTime(s.created_at ? new Date(s.created_at) : new Date()),
       client: s.client_name,
-      cpf: s.cpf ? fmtCpf(s.cpf) : '',
+      cpf: showCpf(s.cpf),
       plan: PLAN_LABEL[s.plan] || s.plan,
       days: s.days_per_week === '4+' ? '4 ou mais' : s.days_per_week,
       time: s.class_time,
@@ -1644,7 +2115,7 @@
       r.id,
       fmtDateTime(new Date(r.created_at)),
       r.client_name,
-      r.clients?.cpf ? fmtCpf(r.clients.cpf) : '',
+      showCpf(r.clients?.cpf),
       Number(r.amount).toFixed(2).replace('.', ','),
       PAYMENT_LABEL[r.payment_method],
       PLAN_LABEL[r.plan],
@@ -1806,7 +2277,7 @@
     const body = h.rows.map((r) => [
       `#${r.id}`,
       fmtDateTime(new Date(r.created_at)),
-      r.client_name + (r.clients?.cpf ? `\n${fmtCpf(r.clients.cpf)}` : ''),
+      r.client_name + (showCpf(r.clients?.cpf) ? `\n${showCpf(r.clients.cpf)}` : ''),
       `${PLAN_LABEL[r.plan]} · ${r.days_per_week}x/sem\naté ${fmtDate(parseISODate(r.plan_end))}`,
       PAYMENT_LABEL[r.payment_method],
       r.class_time,
