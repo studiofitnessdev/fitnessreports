@@ -44,6 +44,12 @@
     return from.getTime() === last.getTime() ? fmtDate(from) : `${fmtDate(from)} a ${fmtDate(last)}`;
   };
 
+  // The Observação text filled in for a sale ("Plano Mensal: 17/11/2026 a 17/12/2026"). Same text as
+  // sale_auto_note() in supabase/013_notes_diaria_subs.sql, which swaps it when a sale is edited.
+  const autoNote = (plan, start, end) => (plan === 'diaria'
+    ? `Diária: ${fmtDate(start)}`
+    : `Plano ${PLAN_LABEL[plan]}: ${fmtDate(start)} a ${fmtDate(end)}`);
+
   const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
   const fmtMoney = (n) => money.format(n);
 
@@ -289,19 +295,35 @@
     $('#history-list').replaceChildren();
   }
 
+  // A failed sign-in: wrong password only when the server says so; no internet is not a wrong password.
+  // (supabase-js: 400 invalid_credentials = wrong password, AuthRetryableFetchError / status 0 = no connection)
+  function authErrorText(error, wrongText) {
+    if (error?.status === 429 || /rate_limit/.test(error?.code || '')) return 'Muitas tentativas seguidas. Espere um minuto e tente de novo.';
+    if (error?.code === 'invalid_credentials' || error?.status === 400) return wrongText;
+    if (!navigator.onLine || error?.name === 'AuthRetryableFetchError' || !error?.status) return 'Sem conexão com a internet. Confira o Wi-Fi ou os dados móveis e tente de novo.';
+    return 'O servidor não respondeu. Tente de novo em instantes.';
+  }
+
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!sb) return showError($('#login-error'), 'Configure o Supabase em js/config.js.');
     const key = document.querySelector('input[name="login-user"]:checked')?.value;
+    if (!CFG.users[key]) return showError($('#login-error'), 'Escolha quem está entrando.');
     const btn = e.submitter || $('#login-form button[type="submit"]');
     btn.disabled = true;
     showError($('#login-error'), '');
-    const { data, error } = await sb.auth.signInWithPassword({
-      email: CFG.users[key].email,
-      password: $('#login-password').value,
-    });
-    btn.disabled = false;
-    if (error) return showError($('#login-error'), 'Senha incorreta.');
+    let data, error;
+    try {
+      ({ data, error } = await sb.auth.signInWithPassword({
+        email: CFG.users[key].email,
+        password: $('#login-password').value,
+      }));
+    } catch (err) {
+      error = err; // fetch itself failed
+    } finally {
+      btn.disabled = false;
+    }
+    if (error) { console.error(error); return showError($('#login-error'), authErrorText(error, 'Senha incorreta.')); }
     try { localStorage.setItem(LAST_USER_KEY, key); } catch (_) { /* ignore */ }
     enterApp(data.user);
   });
@@ -410,8 +432,16 @@
     clientsChanged();
   }
 
+  // A Diária is a one-off visit, not a plan to renew: it never counts as the client's plan (Vencendo /
+  // Vencidos / WhatsApp). supabase/013_notes_diaria_subs.sql leaves it out on the server too, so an older
+  // plan of the same client shows instead; until it runs, the app hides it here.
+  const planSub = (clientId) => {
+    const s = state.subs?.get(clientId);
+    return s && s.plan !== 'diaria' ? s : null;
+  };
+
   function subStatus(clientId) {
-    const s = state.subs.get(clientId);
+    const s = planSub(clientId);
     if (!s) return { cls: 'none', tag: 'Sem plano', detail: '' };
     const end = parseISODate(s.plan_end);
     const days = Math.round((end - startOfDay(new Date())) / 864e5);
@@ -425,8 +455,11 @@
   // Re-render client lists only where visible; the Clientes tab renders when opened.
   // Coalesced into one frame, so clients and plan statuses arriving together draw the list once.
   let clientsChangedFrame = 0;
+  state.nameCount = new Map(); // name → how many clients have it (homonyms must be picked from the list)
   function clientsChanged() {
     state.clientsDirty = true;
+    state.nameCount = new Map();
+    for (const c of state.clients) state.nameCount.set(c.name, (state.nameCount.get(c.name) || 0) + 1);
     if (clientsChangedFrame) return;
     clientsChangedFrame = requestAnimationFrame(() => {
       clientsChangedFrame = 0;
@@ -437,14 +470,18 @@
 
   // Days until the client's plan ends (negative = expired), null = no plan. Class as in subStatus().
   function subDays(clientId) {
-    const sub = state.subs?.get(clientId);
+    const sub = planSub(clientId);
     return sub ? Math.round((parseISODate(sub.plan_end) - startOfDay(new Date())) / 864e5) : null;
   }
+  // What tells two clients apart in a list: CPF, else WhatsApp, else (same name, no CPF) the client code
+  const isHomonym = (c) => (state.nameCount.get(c.name) || 0) > 1;
+  const clientDetail = (c) => showCpf(c.cpf) || fmtPhone(c.phone) || (isHomonym(c) ? `Sem CPF · cód. ${c.id}` : '');
+
   const statusOf = (days) => (days == null ? 'none' : days < 0 ? 'expired' : days <= 7 ? 'soon' : 'active');
 
   // WhatsApp link with a renewal message that fits the plan status
   function whatsappLink(c) {
-    const sub = state.subs?.get(c.id);
+    const sub = planSub(c.id);
     const days = subDays(c.id);
     const plan = sub ? `seu plano ${PLAN_LABEL[sub.plan] || sub.plan}` : '';
     const end = sub ? fmtDate(parseISODate(sub.plan_end)) : '';
@@ -485,7 +522,7 @@
     const f = state.subs ? state.clientFilter : 'all';
     if (f !== 'all') {
       items = items.filter((c) => statusOf(subDays(c.id)) === f);
-      const end = (c) => state.subs.get(c.id).plan_end;
+      const end = (c) => planSub(c.id).plan_end;
       // Vencendo: soonest first. Vencidos: most recent first (the likeliest to renew).
       if (f === 'soon') items.sort((a, b) => end(a).localeCompare(end(b)));
       if (f === 'expired') items.sort((a, b) => end(b).localeCompare(end(a)));
@@ -497,7 +534,7 @@
       const initials = (parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
       const info = el('div');
       info.append(el('div', 'row-name', c.name));
-      info.append(el('div', 'row-meta', [showCpf(c.cpf) || 'Sem CPF', fmtPhone(c.phone)].filter(Boolean).join(' · ')));
+      info.append(el('div', 'row-meta', [showCpf(c.cpf) || 'Sem CPF', fmtPhone(c.phone), !showCpf(c.cpf) && isHomonym(c) && `cód. ${c.id}`].filter(Boolean).join(' · ')));
       if (state.subs) {
         const st = subStatus(c.id);
         const line = el('div', `sub sub-${st.cls}`);
@@ -537,6 +574,7 @@
     $('#client-cpf').value = showCpf(c?.cpf);
     $('#client-phone').value = fmtPhone(c?.phone);
     showError($('#client-error'), '');
+    $('#client-delete').hidden = !(c && state.role === 'owner');
     $('#client-form').hidden = false;
     $('#client-name').focus();
     window.scrollTo(0, 0);
@@ -589,6 +627,69 @@
     $('#client-form').hidden = true;
     toast(id ? 'Cliente atualizado.' : 'Cliente cadastrado.');
     loadClients();
+  });
+
+  // ── Apagar cliente (Anderson only; the database allows only the owner to delete clients).
+  // Their sales stay in Histórico with the name (client_id becomes empty): totals and receipts don't change,
+  // but those sales no longer count as anyone's plan in Clientes.
+  const clientDelModal = $('#client-del-modal');
+  let clientDel = null; // the client being deleted
+  let clientDelCount = 0; // ignores a late sales count for a client no longer on screen
+  $('#client-delete').addEventListener('click', async () => {
+    const c = state.clients.find((x) => String(x.id) === $('#client-id').value);
+    if (!c || state.role !== 'owner') return;
+    clientDel = c;
+    const req = ++clientDelCount;
+    $('#client-del-heading').textContent = `Apagar ${c.name}?`;
+    const sub = state.subs ? subStatus(c.id) : null;
+    const items = [['Cliente', c.name], ['CPF', showCpf(c.cpf) || 'Sem CPF']];
+    if (c.phone) items.push(['WhatsApp', fmtPhone(c.phone)]);
+    if (sub) items.push(['Plano', [sub.tag, sub.detail].filter(Boolean).join(' · ')]);
+    items.push(['Vendas', 'contando…']);
+    $('#client-del-summary').replaceChildren(...items.flatMap(([k, v]) => [el('dt', null, k), el('dd', null, v)]));
+    $('#client-del-text').textContent = 'Não dá para desfazer.';
+    showError($('#client-del-error'), '');
+    clientDelModal.showModal();
+    const { count, error } = await sb.from('sales').select('id', { count: 'exact', head: true }).eq('client_id', c.id);
+    if (req !== clientDelCount || clientDel !== c) return;
+    const salesDd = $('#client-del-summary').lastElementChild;
+    if (error) { salesDd.textContent = '—'; return; }
+    salesDd.textContent = count === 1 ? '1 venda' : `${num.format(count || 0)} vendas`;
+    $('#client-del-text').textContent = count
+      ? `As vendas continuam no Histórico com o nome (valores e recibos não mudam), mas sem CPF e sem contar como plano em Clientes. Não dá para desfazer.`
+      : 'Não dá para desfazer.';
+  });
+  $('#client-del-cancel').addEventListener('click', () => clientDelModal.close());
+  clientDelModal.addEventListener('click', (e) => { if (e.target === clientDelModal) clientDelModal.close(); }); // tap on backdrop
+  clientDelModal.addEventListener('close', () => { clientDel = null; });
+
+  $('#client-del-ok').addEventListener('click', async () => {
+    const c = clientDel;
+    if (!c) return clientDelModal.close();
+    const btn = $('#client-del-ok');
+    btn.disabled = true;
+    try {
+      const { data, error } = await sb.from('clients').delete().eq('id', c.id).select('id');
+      if (error) throw error;
+      if (!data?.length) { // not allowed (only the owner) or already deleted on another phone
+        clientDelModal.close();
+        loadClients();
+        return toast(`${c.name} não foi apagado (talvez já tenha sido apagado).`);
+      }
+      clientDelModal.close();
+      $('#client-form').hidden = true;
+      state.clients = state.clients.filter((x) => x.id !== c.id);
+      state.subs?.delete(c.id);
+      if (state.selectedClient?.id === c.id) state.selectedClient = null;
+      historyCache.clear(); state.insights = null; // their sales lose the CPF
+      clientsChanged();
+      toast(`${c.name} apagado.`);
+    } catch (err) {
+      console.error(err);
+      showError($('#client-del-error'), 'Não foi possível apagar. Verifique a internet e tente de novo.');
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // ───────────────────────── Config: database usage (Anderson only) ─────────────────────────
@@ -745,14 +846,16 @@
     showError(errBox, '');
     btn.disabled = true;
     try {
+      // WhatsApp too, once the phone column exists (supabase/011_cpf_phone_edit_sale.sql)
+      const clientCols = state.hasPhone ? [...CLIENT_COLS.slice(0, 3), 'phone', 'created_at'] : CLIENT_COLS;
       const [sales, clients] = await Promise.all([
         fetchAll(() => sb.from('sales').select(SALE_COLS.join(',')).order('id')),
-        fetchAll(() => sb.from('clients').select(CLIENT_COLS.join(',')).order('id')),
+        fetchAll(() => sb.from('clients').select(clientCols.join(',')).order('id')),
       ]);
       const stamp = toISODate(new Date());
       download(makeZip([
         { name: 'vendas.csv', text: rawCsv(SALE_COLS, sales) },
-        { name: 'clientes.csv', text: rawCsv(CLIENT_COLS, clients) },
+        { name: 'clientes.csv', text: rawCsv(clientCols, clients) },
         { name: 'LEIA-ME.txt', text: BACKUP_README },
       ]), `studio-fitness-backup_${stamp}.zip`);
       state.backup = {
@@ -863,23 +966,63 @@
     return rows;
   }
 
-  // The CPF column is the one with the most 11-digit values; the name column the one with the most letters.
+  // CPF digits of a cell. A plain number of 9–10 digits is a CPF whose leading zeros Excel dropped
+  // (a CPF starting with 0 or 00); anything shorter is not a CPF (row numbers, codes…).
+  const cellCpf = (raw) => {
+    const d = raw.replace(/\D/g, '');
+    return /^\d{9,10}$/.test(raw) ? d.padStart(11, '0') : d;
+  };
+  // Real CPFs end in two check digits; a phone or a code almost never does.
+  const validCpf = (d) => {
+    if (!/^\d{11}$/.test(d) || /^(\d)\1{10}$/.test(d)) return false;
+    const check = (len) => {
+      let sum = 0;
+      for (let i = 0; i < len; i++) sum += Number(d[i]) * (len + 1 - i);
+      return ((sum * 10) % 11) % 10;
+    };
+    return check(9) === Number(d[9]) && check(10) === Number(d[10]);
+  };
+  // Phone digits of a cell ("(35) 99999-9999", "+55 35 99999 9999", "35999999999") or '' (also without DDD).
+  const cellPhone = (raw) => {
+    if (!/^[\d\s()+\-.]+$/.test(raw)) return '';
+    let d = raw.replace(/\D/g, '');
+    if (/^55\d{10,11}$/.test(d)) d = d.slice(2); // country code
+    if (/^0\d{10,11}$/.test(d)) d = d.slice(1); // long-distance 0
+    return /^\d{10,11}$/.test(d) ? d : '';
+  };
+  const PHONE_HEADER = /^(TELEFONE|FONE|CELULAR|CEL|WHATSAPP|WHATS|ZAP|CONTATO)S?\b/;
+
+  // CPF column: the one with the most valid CPFs (none → no CPF column). Name column: the one with the most
+  // letters. Phone column (optional): a header like "Telefone"/"WhatsApp", or the column (other than those
+  // two) where at least half of the filled cells are phone numbers that aren't CPFs.
   function parseClientRows(rows) {
     const width = Math.max(0, ...rows.map((r) => r.length));
-    const score = (test) => Array.from({ length: width }, (_, c) => rows.reduce((n, r) => n + (test(String(r[c] ?? '')) ? 1 : 0), 0));
-    const cpfScore = score((s) => /^[\d.\-\s/]*$/.test(s) && s.replace(/\D/g, '').length === 11);
+    const cellAt = (r, c) => (c >= 0 ? String(r[c] ?? '').trim() : '');
+    const score = (test) => Array.from({ length: width }, (_, c) => rows.reduce((n, r) => n + (test(cellAt(r, c)) ? 1 : 0), 0));
+    const best = (scores, skip = []) => scores.reduce((b, s, c) => (!skip.includes(c) && s > 0 && (b < 0 || s > scores[b]) ? c : b), -1);
+    const cpfScore = score((s) => /^[\d.\-\s/]*$/.test(s) && validCpf(cellCpf(s)));
     const nameScore = score((s) => /[A-Za-zÀ-ÿ]{2,}/.test(s));
-    const cpfCol = cpfScore.indexOf(Math.max(...cpfScore));
-    const nameCol = nameScore.indexOf(Math.max(...nameScore));
-    if (nameCol < 0 || !nameScore[nameCol]) return null;
+    const nameCol = best(nameScore);
+    if (nameCol < 0) return null;
+    const cpfCol = best(cpfScore, [nameCol]);
+    let phoneCol = -1;
+    for (const r of rows.slice(0, 5)) { // header row(s)
+      const c = r.findIndex((v, i) => i !== nameCol && i !== cpfCol && PHONE_HEADER.test(normName(String(v ?? ''))));
+      if (c >= 0) { phoneCol = c; break; }
+    }
+    if (phoneCol < 0) {
+      const phoneScore = score((s) => !!cellPhone(s) && !validCpf(cellCpf(s)));
+      const filled = score((s) => s !== '');
+      const c = best(phoneScore, [nameCol, cpfCol]);
+      if (c >= 0 && phoneScore[c] * 2 >= filled[c]) phoneCol = c;
+    }
     const out = [];
     for (const r of rows) {
-      const name = normName(String(r[nameCol] ?? ''));
+      const name = normName(cellAt(r, nameCol));
       if (!name || /^NOMES?( DO CLIENTE| COMPLETO)?$/.test(name)) continue; // empty row or header
-      const raw = cpfCol >= 0 && cpfCol !== nameCol ? String(r[cpfCol] ?? '').trim() : '';
-      let cpf = raw.replace(/\D/g, '');
-      if (cpf.length > 0 && cpf.length < 11 && /^\d+$/.test(raw)) cpf = cpf.padStart(11, '0'); // Excel dropped the leading zeros
-      out.push({ name, cpf: cpf.length === 11 ? cpf : CPF_NONE });
+      const cpf = cellCpf(cellAt(r, cpfCol));
+      const phone = cellPhone(cellAt(r, phoneCol));
+      out.push({ name, cpf: cpf.length === 11 ? cpf : CPF_NONE, ...(phone ? { phone } : {}) });
     }
     return out;
   }
@@ -914,39 +1057,62 @@
     if (!rows || !rows.length) return showError(errBox, 'Nenhum cliente encontrado na planilha.');
 
     // Skip who is already in the app (or earlier in the file): same CPF, or same name when there is no CPF.
-    const cpfs = new Set(state.clients.map((c) => c.cpf).filter((c) => c && c !== CPF_NONE));
-    const names = new Set(state.clients.map((c) => c.name));
+    // A client already in the app without WhatsApp gets the sheet's phone (only when the match is certain:
+    // same CPF, or a name that only one client has).
+    if (!state.hasPhone) for (const r of rows) delete r.phone; // phone column not in the database yet
+    const byCpf = new Map(state.clients.filter((c) => c.cpf && c.cpf !== CPF_NONE).map((c) => [c.cpf, c]));
+    const byName = new Map();
+    for (const c of state.clients) byName.set(c.name, byName.has(c.name) ? null : c); // null = more than one
+    const cpfs = new Set(byCpf.keys());
+    const names = new Set(byName.keys());
     const fresh = [];
+    const phones = new Map(); // client id → phone
     for (const r of rows) {
-      if (r.cpf !== CPF_NONE ? cpfs.has(r.cpf) : names.has(r.name)) continue;
+      if (r.cpf !== CPF_NONE ? cpfs.has(r.cpf) : names.has(r.name)) {
+        const c = r.cpf !== CPF_NONE ? byCpf.get(r.cpf) : byName.get(r.name);
+        if (r.phone && c && !c.phone && !phones.has(c.id)) phones.set(c.id, r.phone);
+        continue;
+      }
       if (r.cpf !== CPF_NONE) cpfs.add(r.cpf);
       names.add(r.name);
       fresh.push(r);
     }
     const noCpf = fresh.filter((r) => r.cpf === CPF_NONE).length;
+    const withPhone = fresh.filter((r) => r.phone).length;
     const skipped = rows.length - fresh.length;
-    status.textContent = `${num.format(rows.length)} clientes na planilha: ${num.format(fresh.length)} novos`
+    const plural = (n, one, many) => `${num.format(n)} ${n === 1 ? one : many}`;
+    status.textContent = `${plural(rows.length, 'cliente', 'clientes')} na planilha: ${plural(fresh.length, 'novo', 'novos')}`
       + (noCpf ? ` (${num.format(noCpf)} sem CPF)` : '')
-      + (skipped ? `, ${num.format(skipped)} já cadastrados ou repetidos.` : '.');
+      + (withPhone ? `, ${num.format(withPhone)} com WhatsApp` : '')
+      + (skipped ? `, ${plural(skipped, 'já cadastrado ou repetido', 'já cadastrados ou repetidos')}` : '')
+      + (phones.size ? ` (${plural(phones.size, 'deles ganha', 'deles ganham')} o WhatsApp da planilha)` : '')
+      + '.';
     status.hidden = false;
-    if (!fresh.length) return;
+    if (!fresh.length && !phones.size) return;
     status.textContent += ' Nada foi salvo ainda: toque no botão abaixo para cadastrar.';
-    importPending = fresh;
+    importPending = { fresh, phones: [...phones] };
     const ok = $('#import-confirm');
-    ok.textContent = `Cadastrar ${num.format(fresh.length)} clientes`;
+    ok.textContent = [
+      fresh.length && `Cadastrar ${plural(fresh.length, 'cliente', 'clientes')}`,
+      phones.size && `${fresh.length ? 'e ' : 'Salvar '}${num.format(phones.size)} WhatsApp`,
+    ].filter(Boolean).join(' ');
     ok.hidden = false;
     $('#import-btn').hidden = true;
   });
 
   $('#import-confirm').addEventListener('click', async () => {
-    const rows = importPending;
-    if (!rows) return;
+    if (!importPending) return;
+    const { fresh: rows, phones } = importPending;
     const btn = $('#import-confirm');
     const errBox = $('#import-error');
     const status = $('#import-status');
     showError(errBox, '');
     btn.disabled = true;
-    let done = 0;
+    let done = 0, phonesDone = 0;
+    const doneText = () => [
+      rows.length && `${num.format(done)} de ${num.format(rows.length)} clientes cadastrados`,
+      phones.length && `${num.format(phonesDone)} de ${num.format(phones.length)} WhatsApp salvos`,
+    ].filter(Boolean).join(', ') + '.';
     try {
       for (let i = 0; i < rows.length; i += IMPORT_BATCH) {
         const { error } = await sb.from('clients').insert(rows.slice(i, i + IMPORT_BATCH));
@@ -954,11 +1120,20 @@
         done += Math.min(IMPORT_BATCH, rows.length - i);
         btn.textContent = `Cadastrando… ${num.format(done)} de ${num.format(rows.length)}`;
       }
-      status.textContent = `${num.format(done)} clientes cadastrados.`;
-      toast(`${num.format(done)} clientes importados.`);
+      // Phones of clients already registered: one update each, 6 at a time
+      for (let i = 0; i < phones.length; i += 6) {
+        const results = await Promise.all(phones.slice(i, i + 6).map(([id, phone]) =>
+          sb.from('clients').update({ phone }).eq('id', id).is('phone', null)));
+        const failed = results.find((res) => res.error);
+        if (failed) throw failed.error;
+        phonesDone += results.length;
+        btn.textContent = `Salvando WhatsApp… ${num.format(phonesDone)} de ${num.format(phones.length)}`;
+      }
+      status.textContent = doneText();
+      toast(rows.length ? `${num.format(done)} clientes importados.` : `${num.format(phonesDone)} WhatsApp salvos.`);
     } catch (err) {
       console.error(err);
-      status.textContent = `${num.format(done)} de ${num.format(rows.length)} clientes cadastrados.`;
+      status.textContent = doneText();
       showError(errBox, err?.code === '23505'
         ? 'A importação parou: um CPF da planilha já está cadastrado (talvez em outro celular agora há pouco). Escolha a planilha de novo para cadastrar o que faltou.'
         : 'A importação parou (verifique a internet). Escolha a planilha de novo para cadastrar o que faltou.');
@@ -1004,7 +1179,7 @@
     try {
       const { data: { user } } = await sb.auth.getUser();
       const check = await sb.auth.signInWithPassword({ email: user?.email || CFG.users.owner.email, password: current });
-      if (check.error) return showError(errBox, 'Senha atual incorreta.');
+      if (check.error) return showError(errBox, authErrorText(check.error, 'Senha atual incorreta.'));
 
       // Clients are never deleted. max_client_id: 0 also keeps them on a database still running the old
       // wipe_data() from 006_wipe.sql (it deleted clients up to that id); 010_wipe_sales_only.sql ignores it.
@@ -1091,7 +1266,7 @@
       // Check the current password (also refreshes the login, which Supabase may require to change a password).
       const { data: { user } } = await sb.auth.getUser();
       const check = await sb.auth.signInWithPassword({ email: user?.email || CFG.users.owner.email, password: current });
-      if (check.error) return showError(errBox, 'Senha atual incorreta.');
+      if (check.error) return showError(errBox, authErrorText(check.error, 'Senha atual incorreta.'));
 
       const { error } = target === 'owner'
         ? await sb.auth.updateUser({ password })
@@ -1152,9 +1327,7 @@
   let lastAutoNote = '';
   function updateNotes() {
     const { start, end } = planDates();
-    const auto = radioValue('plan') === 'diaria'
-      ? `Diária: ${fmtDate(start)}`
-      : `Plano ${PLAN_LABEL[radioValue('plan')]}: ${fmtDate(start)} a ${fmtDate(end)}`;
+    const auto = autoNote(radioValue('plan'), start, end);
     const notes = $('#sale-notes');
     if (!notes.value.trim()) notes.value = auto;
     else if (lastAutoNote && notes.value.includes(lastAutoNote)) notes.value = notes.value.replace(lastAutoNote, auto);
@@ -1226,7 +1399,7 @@
     comboItems = [];
     const nodes = found.slice(0, COMBO_MAX).map((c) => comboOption(`opt-${c.id}`, null, [
       el('span', 'combo-name', c.name),
-      ...(showCpf(c.cpf) ? [el('span', 'combo-cpf', showCpf(c.cpf))] : []),
+      ...(clientDetail(c) ? [el('span', 'combo-cpf', clientDetail(c))] : []),
     ], () => selectClient(c)));
 
     if (found.length > COMBO_MAX) nodes.push(el('li', 'combo-hint', `+${found.length - COMBO_MAX} clientes… continue digitando`));
@@ -1356,9 +1529,15 @@
     const cents = amountCents();
     const days = radioValue('plan') === 'diaria' ? DIARIA_DAYS : radioValue('days');
 
-    // The client must be one from the list (picked, or typed exactly as registered)
+    // The client must be one from the list (picked, or typed exactly as registered). A name that more than
+    // one client has must be picked from the list, so the sale never lands on the wrong person.
     let client = state.selectedClient;
-    if (!client || client.name !== typedName) client = state.clients.find((c) => c.name === typedName) || null;
+    let homonyms = 0;
+    if (!client || client.name !== typedName) {
+      const same = state.clients.filter((c) => c.name === typedName);
+      homonyms = same.length > 1 ? same.length : 0;
+      client = homonyms ? null : same[0] || null;
+    }
 
     const missing = [];
     if (!typedName) { missing.push('cliente'); comboInput.classList.add('invalid'); }
@@ -1366,6 +1545,11 @@
     if (!days) { missing.push('dias/semana'); saleForm.querySelector('input[name="days"]').closest('.pills').classList.add('invalid'); }
     if (!timeSelect.value) { missing.push('horário'); timeSelect.classList.add('invalid'); }
     if (missing.length) return showError(errBox, `Preencha: ${missing.join(', ')}.`);
+    if (homonyms) {
+      comboInput.classList.add('invalid');
+      comboInput.focus();
+      return showError(errBox, `Há ${homonyms} clientes chamados ${typedName}. Escolha o certo na lista (pelo CPF ou WhatsApp).`);
+    }
     if (!client) {
       comboInput.classList.add('invalid');
       comboInput.focus();
@@ -1410,8 +1594,8 @@
       const receipt = receiptData({ ...row, id: saved.id, created_at: saved.created_at, cpf: client.cpf });
       historyCache.clear(); state.insights = null;
       // Show the new plan in Clientes right away (the server copy refreshes in the background).
-      if (state.subs) {
-        const prev = state.subs.get(client.id);
+      if (state.subs && row.plan !== 'diaria') {
+        const prev = planSub(client.id);
         if (!prev || row.plan_end >= prev.plan_end) {
           state.subs.set(client.id, { client_id: client.id, plan: row.plan, plan_start: row.plan_start, plan_end: row.plan_end });
           clientsChanged();
@@ -1646,12 +1830,27 @@
 
   function editEnd() {
     const start = $('#edit-start').value;
-    const months = PLAN_MONTHS[editRadio('edit-plan')];
+    const plan = editRadio('edit-plan');
+    // Plan and start as they were: the dates stay exactly as saved (see the submit below)
+    if (editSale && plan === editSale.plan && start === editSale.plan_start) return parseISODate(editSale.plan_end);
+    const months = PLAN_MONTHS[plan];
     return start && months != null ? addMonths(parseISODate(start), months) : null; // 0 = diária
   }
   function showEditEnd() {
     const end = editEnd();
     $('#edit-end').textContent = end ? `Vence em ${fmtDate(end)}` : '';
+  }
+
+  // Observação (Anderson): when plan or start date change, the automatic period text follows them
+  // ("Plano Mensal: …" → "Plano Trimestral: …"); anything else written there is kept.
+  let editAutoNote = '';
+  function syncEditNotes() {
+    const end = editEnd();
+    if (!end || !editAutoNote) return;
+    const auto = autoNote(editRadio('edit-plan'), parseISODate($('#edit-start').value), end);
+    const notes = $('#edit-notes');
+    if (notes.value.includes(editAutoNote)) notes.value = notes.value.replace(editAutoNote, auto);
+    editAutoNote = auto;
   }
 
   function openEditSale(r) {
@@ -1684,6 +1883,7 @@
       editAmount.value = fmtMoney(Number(r.amount));
       editForm.querySelectorAll('input[name="edit-payment"]').forEach((i) => { i.checked = i.value === r.payment_method; });
       $('#edit-notes').value = r.notes || '';
+      editAutoNote = autoNote(r.plan, parseISODate(r.plan_start), parseISODate(r.plan_end));
     }
     showError($('#edit-error'), '');
     editModal.showModal();
@@ -1699,7 +1899,7 @@
     const found = matchClients(q).slice(0, 8);
     editOptions.replaceChildren(...(found.length ? found.map((c) => {
       const li = el('li');
-      li.append(el('span', 'combo-name', c.name), ...(showCpf(c.cpf) ? [el('span', 'combo-cpf', showCpf(c.cpf))] : []));
+      li.append(el('span', 'combo-name', c.name), ...(clientDetail(c) ? [el('span', 'combo-cpf', clientDetail(c))] : []));
       li.addEventListener('click', () => {
         editClient = c;
         editClientInput.value = c.name;
@@ -1712,14 +1912,15 @@
   editForm.addEventListener('change', (e) => {
     if (e.target.name !== 'edit-plan') return;
     showEditEnd();
+    syncEditNotes();
     $('#edit-days-field').hidden = e.target.value === 'diaria';
   });
-  $('#edit-start').addEventListener('change', () => { setDateInput('edit-start', $('#edit-start').value); showEditEnd(); });
+  $('#edit-start').addEventListener('change', () => { setDateInput('edit-start', $('#edit-start').value); showEditEnd(); syncEditNotes(); });
   $('#edit-start').addEventListener('click', () => { try { $('#edit-start').showPicker(); } catch (_) { /* opens natively */ } });
   editAmount.addEventListener('input', () => { editAmount.value = fmtMoney(editCents() / 100); });
   $('#edit-cancel').addEventListener('click', () => editModal.close());
   editModal.addEventListener('click', (e) => { if (e.target === editModal) editModal.close(); }); // tap on backdrop
-  editModal.addEventListener('close', () => { editSale = null; });
+  editModal.addEventListener('close', () => { editSale = null; editAutoNote = ''; });
 
   // Put the saved sale back into the open list and every cached period that has it
   function patchHistoryRow(id, patch) {
@@ -1791,6 +1992,8 @@
   const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
   const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
   const INSIGHTS_FRESH_MS = 60 * 1000;
+  const INSIGHTS_MONTHS = 18;
+  const RENEW_GRACE_DAYS = 15; // a plan renewed up to 15 days after it ended still counts as renewed
   state.insights = null; // { at, rows }
   const pct = (part, total) => (total ? Math.round((part / total) * 100) : 0);
 
@@ -1800,10 +2003,11 @@
     if (state.insights && Date.now() - state.insights.at < INSIGHTS_FRESH_MS) return;
     if (!state.insights) { status.textContent = 'Carregando…'; $('#insights-body').replaceChildren(); }
     const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    // 18 months: the charts show 12; the 6 before let "new client" look a year back (see clientFlow)
+    const from = new Date(now.getFullYear(), now.getMonth() - (INSIGHTS_MONTHS - 1), 1);
     try {
       const rows = await fetchAll(() => sb.from('sales')
-        .select('id, created_at, amount, payment_method, plan, days_per_week, class_time')
+        .select('id, created_at, amount, payment_method, plan, days_per_week, class_time, client_id, plan_end')
         .gte('created_at', from.toISOString())
         .order('created_at').order('id'));
       if (state.role !== 'owner') return; // logged out meanwhile
@@ -1837,9 +2041,8 @@
     return tile;
   }
 
-  // Horizontal bars: [{ label, value, text }] — bar length = value / biggest value
-  function hbars(items) {
-    const max = Math.max(1, ...items.map((i) => i.value));
+  // Horizontal bars: [{ label, value, text }] — bar length = value / biggest value (or / max, e.g. 100 for %)
+  function hbars(items, max = Math.max(1, ...items.map((i) => i.value))) {
     const list = el('ul', 'hbars');
     for (const it of items) {
       const li = el('li', 'hbar');
@@ -1897,13 +2100,60 @@
     return panel;
   }
 
+  // New clients and renewals, from plan sales only (a Diária is a visit, counted on its own).
+  // - A plan sale is a renewal when the same client had a plan that ended less than a year before it (or is
+  //   still running); otherwise the client is new (first plan, or back after a year or more without one).
+  //   Needs history before the month, so it is only given for the last 6 of the 18 months loaded.
+  // - Renewal rate of a month: of the plans that ended in it, how many were followed by another plan of the
+  //   same client up to RENEW_GRACE_DAYS after the end. Only months whose grace period is already over.
+  function clientFlow(all, now) {
+    const plans = all.filter((s) => s.plan !== 'diaria' && s.client_id != null).sort((a, b) => a.at - b.at || a.id - b.id);
+    const byClient = new Map();
+    for (const s of plans) {
+      if (!byClient.has(s.client_id)) byClient.set(s.client_id, []);
+      byClient.get(s.client_id).push(s);
+    }
+    const isRenewal = new Map(); // sale → bought a plan in the year before
+    const renewed = new Map(); // sale → followed by another plan in time
+    for (const list of byClient.values()) {
+      let lastEnd = null; // furthest plan end of the client's earlier sales
+      list.forEach((s, i) => {
+        isRenewal.set(s, !!lastEnd && s.at < addDays(lastEnd, 366));
+        const end = parseISODate(s.plan_end);
+        if (!lastEnd || end > lastEnd) lastEnd = end;
+        const next = list[i + 1];
+        const limit = addDays(parseISODate(s.plan_end), RENEW_GRACE_DAYS + 1); // through the 15th day
+        renewed.set(s, !!next && next.at < limit);
+      });
+    }
+    const monthOf = (k) => new Date(now.getFullYear(), now.getMonth() - k, 1); // k = 0 this month
+    const flow = [];
+    for (let k = 5; k >= 0; k--) {
+      const start = monthOf(k), end = monthOf(k - 1);
+      const inMonth = plans.filter((s) => s.at >= start && s.at < end);
+      const fresh = new Set(inMonth.filter((s) => !isRenewal.get(s)).map((s) => s.client_id));
+      flow.push({ y: start.getFullYear(), m: start.getMonth(), start, fresh: fresh.size, renewals: inMonth.filter((s) => isRenewal.get(s)).length, sales: inMonth });
+    }
+    const today = startOfDay(now);
+    const renewal = [];
+    for (let k = 1; k < INSIGHTS_MONTHS && renewal.length < 6; k++) {
+      const start = monthOf(k), end = monthOf(k - 1);
+      if (addDays(end, RENEW_GRACE_DAYS) > today) continue; // some plans of this month are still in their grace days
+      const ended = plans.filter((s) => { const e = parseISODate(s.plan_end); return e >= start && e < end; });
+      if (ended.length) renewal.unshift({ y: start.getFullYear(), m: start.getMonth(), total: ended.length, renewed: ended.filter((s) => renewed.get(s)).length });
+    }
+    return { flow, renewal, isRenewal };
+  }
+
   function renderInsights(rows) {
     const body = $('#insights-body');
     const now = new Date();
-    $('#insights-status').textContent = rows.length
-      ? `${num.format(rows.length)} vendas desde ${MONTHS_LONG[new Date(now.getFullYear(), now.getMonth() - 11, 1).getMonth()]} de ${now.getFullYear() - (now.getMonth() < 11 ? 1 : 0)}`
+    const from12 = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    const all = rows.map((r) => ({ ...r, at: new Date(r.created_at), value: Number(r.amount) }));
+    const sales = all.filter((s) => s.at >= from12); // the last 12 months: every chart but the client flow
+    $('#insights-status').textContent = sales.length
+      ? `${num.format(sales.length)} vendas desde ${MONTHS_LONG[from12.getMonth()]} de ${from12.getFullYear()}`
       : '';
-    const sales = rows.map((r) => ({ ...r, at: new Date(r.created_at), value: Number(r.amount) }));
 
     // Clients (from client_subscriptions(), also works with no sales in the period)
     let active = 0, soon = 0;
@@ -1945,15 +2195,46 @@
     const sameLabel = `1–${Math.min(now.getDate(), new Date(cur.y, cur.m, 0).getDate())} de ${MONTHS_SHORT[prev.m]}`;
     const total12 = sales.reduce((n, s) => n + s.value, 0);
 
+    const { flow, renewal, isRenewal } = clientFlow(all, now);
+    const flowNow = flow[flow.length - 1];
+    const freshPrevSame = new Set(flow[flow.length - 2].sales.filter((s) => s.at < cutoff && !isRenewal.get(s)).map((s) => s.client_id)).size;
+    const freshTile = kpi(`Clientes novos em ${MONTHS_LONG[cur.m]}`, num.format(flowNow.fresh), deltaLine(flowNow.fresh, freshPrevSame, sameLabel));
+    freshTile.append(el('span', 'kpi-delta', flowNow.renewals === 1 ? '1 renovação' : `${num.format(flowNow.renewals)} renovações`));
+
+    const diarias = sales.filter((s) => s.plan === 'diaria');
+    const diariasNow = diarias.filter((s) => s.at >= curStart);
+    const diariasTile = diarias.length ? kpi(`Diárias em ${MONTHS_LONG[cur.m]}`, num.format(diariasNow.length),
+      deltaLine(diariasNow.length, diarias.filter((s) => s.at >= prevStart && s.at < cutoff).length, sameLabel)) : null;
+    diariasTile?.append(el('span', 'kpi-delta', fmtMoney(diariasNow.reduce((n, s) => n + s.value, 0))));
+
     const grid = el('div', 'kpis');
     grid.append(
       kpi(`Receita em ${MONTHS_LONG[cur.m]}`, fmtMoney(cur.total), deltaLine(cur.total, prevSameTotal, sameLabel)),
       kpi(`Vendas em ${MONTHS_LONG[cur.m]}`, num.format(cur.count), deltaLine(cur.count, prevSame.length, sameLabel)),
       kpi('Ticket médio', fmtMoney(total12 / sales.length), el('span', 'kpi-delta', 'últimos 12 meses')),
       clientsTile,
+      freshTile,
+      ...(diariasTile ? [diariasTile] : []),
     );
 
     const panels = [grid, monthChart(months)];
+
+    const monthName = (x) => `${MONTHS_SHORT[x.m]}/${String(x.y).slice(2)}`;
+    if (renewal.length) {
+      const last = renewal[renewal.length - 1];
+      const renewPanel = insightPanel('Renovação dos planos',
+        `Dos planos que venceram em ${MONTHS_LONG[last.m]}, ${pct(last.renewed, last.total)}% renovaram (até ${RENEW_GRACE_DAYS} dias depois)`);
+      renewPanel.append(hbars(renewal.map((r) => ({ label: monthName(r), value: pct(r.renewed, r.total), text: `${pct(r.renewed, r.total)}% · ${num.format(r.renewed)} de ${num.format(r.total)}` })), 100));
+      panels.push(renewPanel);
+    }
+
+    if (flow.some((f) => f.fresh || f.renewals)) {
+      const avgFresh = flow.reduce((n, f) => n + f.fresh, 0) / flow.length;
+      const flowPanel = insightPanel('Clientes novos por mês',
+        `Média de ${dec1.format(avgFresh)} por mês · novo = primeiro plano em 12 meses`);
+      flowPanel.append(hbars(flow.map((f) => ({ label: monthName(f), value: f.fresh, text: `${num.format(f.fresh)} novos · ${num.format(f.renewals)} renov.` }))));
+      panels.push(flowPanel);
+    }
 
     const plans = groupBy(sales, (s) => s.plan, ['diaria', 'mensal', 'trimestral', 'semestral', 'anual']);
     const topPlan = [...plans].sort((a, b) => b.count - a.count)[0];

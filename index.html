@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
   <!-- Only the font weights actually used -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Barlow+Condensed:ital,wght@0,700;1,600;1,700;1,800;1,900&family=Barlow:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="css/style.css?v=b85cfd21">
+  <link rel="stylesheet" href="css/style.css?v=e7f25035">
 </head>
 <body>
 
@@ -275,6 +275,8 @@
             <button type="button" class="btn btn-ghost" id="client-cancel">Cancelar</button>
             <button type="submit" class="btn btn-hero">Salvar</button>
           </div>
+          <!-- Anderson only, when editing an existing client -->
+          <button type="button" class="btn btn-danger btn-block btn-sm client-delete" id="client-delete" hidden><svg class="ico" aria-hidden="true"><use href="#i-trash"/></svg> Apagar cliente</button>
         </form>
 
         <ul class="list list-clients" id="clients-list"></ul>
@@ -495,6 +497,20 @@
     </div>
   </dialog>
 
+  <!-- Apagar um cliente (Clientes, somente Anderson) -->
+  <dialog class="modal" id="client-del-modal" aria-labelledby="client-del-modal-title">
+    <div class="panel">
+      <div class="panel-head" id="client-del-modal-title"><span class="step"><svg class="ico"><use href="#i-trash"/></svg></span> <span id="client-del-heading">Apagar cliente?</span></div>
+      <dl class="del-summary" id="client-del-summary"></dl>
+      <p class="pw-modal-text del-warn" id="client-del-text"></p>
+      <p class="error" id="client-del-error" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="client-del-cancel">Cancelar</button>
+        <button type="button" class="btn btn-hero" id="client-del-ok">Apagar cliente</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Editar venda (Histórico): same receipt number, fixes instead of deleting -->
   <dialog class="modal modal-tall" id="edit-modal" aria-labelledby="edit-modal-title">
     <form id="edit-form" class="panel" novalidate>
@@ -555,6 +571,6 @@
   <script defer src="js/printer.js?v=b81edba2"></script>
   <script defer src="js/receipt.js?v=f68f118c"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=93defa35"></script>
+  <script defer src="js/app.js?v=204ba689"></script>
 </body>
 </html>

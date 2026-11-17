@@ -695,6 +695,8 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .data-danger .pw-title { color: #ff4d40; }
 .btn-danger { color: #ff4d40; background: rgba(225, 6, 0, .08); border: 1.5px solid rgba(255, 45, 31, .7); }
 .btn-danger:disabled { opacity: .45; }
+.client-delete { justify-content: center; margin-top: 14px; }
+.client-delete .ico { width: 16px; height: 16px; }
 #backup-btn .ico { vertical-align: -3px; }
 
 /* ───────── Clientes: renewal filters and WhatsApp ───────── */

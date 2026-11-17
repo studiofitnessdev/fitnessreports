@@ -84,7 +84,7 @@ create policy "owner delete sales" on public.sales for delete to authenticated u
 
 -- ─────────────────────────────────────────────
 -- Subscription status per client (Clientes tab), for both logins.
--- Returns only the plan dates of each client's sale that reaches furthest: no amounts.
+-- Returns only the plan dates of each client's sale that reaches furthest (Diárias left out): no amounts.
 -- ─────────────────────────────────────────────
 create index sales_client_end_idx on public.sales (client_id, plan_end desc);
 
@@ -93,7 +93,7 @@ returns table (client_id bigint, plan text, plan_start date, plan_end date)
 language sql stable security definer set search_path = public as $$
   select distinct on (s.client_id) s.client_id, s.plan, s.plan_start, s.plan_end
   from public.sales s
-  where public.is_staff() and s.client_id is not null
+  where public.is_staff() and s.client_id is not null and s.plan <> 'diaria' -- a Diária is a visit, not a plan
   order by s.client_id, s.plan_end desc, s.id desc;
 $$;
 
@@ -247,11 +247,25 @@ revoke execute on function public.delete_sale(bigint) from public, anon;
 grant execute on function public.delete_sale(bigint) to authenticated;
 
 -- ─────────────────────────────────────────────
--- "Editar venda" (Histórico, both logins). See 011_cpf_phone_edit_sale.sql.
+-- "Editar venda" (Histórico, both logins). See 011_cpf_phone_edit_sale.sql and 013_notes_diaria_subs.sql.
 -- ─────────────────────────────────────────────
+-- The Observação text the app fills in for a sale (same as autoNote() in js/app.js).
+create or replace function public.sale_auto_note(p_plan text, p_start date, p_end date)
+returns text
+language sql stable set search_path = public as $$
+  select case when p_plan = 'diaria' then 'Diária: ' || to_char(p_start, 'DD/MM/YYYY')
+              else 'Plano ' || initcap(p_plan) || ': ' || to_char(p_start, 'DD/MM/YYYY') || ' a ' || to_char(p_end, 'DD/MM/YYYY')
+         end;
+$$;
+
+revoke execute on function public.sale_auto_note(text, date, date) from public, anon;
+
 -- edit_sale(): fixes a sale instead of deleting it (both logins). Same receipt number.
 -- The teacher can change client, plan, days, time and dates; amount, payment method and observação
 -- only change for the owner (ignored for the teacher). Returns only plan details, never the amount.
+-- Also: when plan or dates change, the automatic "Plano Mensal: … a …" part of the
+-- Observação is swapped for the new one (anything else written there is kept). Anderson's app already sends
+-- the updated text; this covers the Professor, who can't see or send the Observação.
 create or replace function public.edit_sale(sale_id bigint, changes jsonb)
 returns json
 language plpgsql security definer set search_path = public as $$
@@ -259,6 +273,7 @@ declare
   owner boolean := public.is_owner();
   new_client_id bigint := (changes->>'client_id')::bigint;
   new_client_name text;
+  v_old public.sales;
   r public.sales;
 begin
   if not public.is_staff() then
@@ -269,6 +284,10 @@ begin
     if new_client_name is null then
       raise exception 'client not found' using errcode = 'P0002';
     end if;
+  end if;
+  select * into v_old from public.sales s where s.id = sale_id for update;
+  if not found then
+    raise exception 'sale not found' using errcode = 'P0002';
   end if;
   update public.sales s set
     client_id      = coalesce(new_client_id, s.client_id),
@@ -283,11 +302,15 @@ begin
     notes          = case when owner and changes ? 'notes' then nullif(changes->>'notes', '') else s.notes end
   where s.id = sale_id
   returning s.* into r;
-  if not found then
-    raise exception 'sale not found' using errcode = 'P0002';
-  end if;
   if r.plan_end < r.plan_start then
     raise exception 'plan_end before plan_start' using errcode = '22023';
+  end if;
+  if not (owner and changes ? 'notes') and r.notes is not null
+     and (r.plan, r.plan_start, r.plan_end) is distinct from (v_old.plan, v_old.plan_start, v_old.plan_end) then
+    update public.sales s
+       set notes = replace(s.notes, public.sale_auto_note(v_old.plan, v_old.plan_start, v_old.plan_end),
+                                    public.sale_auto_note(r.plan, r.plan_start, r.plan_end))
+     where s.id = sale_id;
   end if;
   return json_build_object('id', r.id, 'client_id', r.client_id, 'client_name', r.client_name, 'plan', r.plan,
     'days_per_week', r.days_per_week, 'class_time', r.class_time, 'plan_start', r.plan_start, 'plan_end', r.plan_end);
@@ -296,3 +319,4 @@ $$;
 
 revoke execute on function public.edit_sale(bigint, jsonb) from public, anon;
 grant execute on function public.edit_sale(bigint, jsonb) to authenticated;
+
