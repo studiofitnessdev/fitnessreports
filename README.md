@@ -49,11 +49,17 @@ Put them in [`js/config.js`](js/config.js). **Never use the `secret` / `service_
 Free GitHub Pages requires a public repo. That's fine: no client data is stored in the repo, only the code.
 
 ## Service worker (fast launches on an old phone)
-[`sw.js`](sw.js) keeps the app's files on the phone, so after the first visit the app opens without downloading anything:
-- **The page** (`index.html`) comes from the network first, so a new deploy shows up on the next launch. If the network takes more than 2.5 s or is down, the last saved copy opens instead.
-- **css/js** (with `?v=`), images, supabase-js and the Google Fonts come from the phone's cache. `scripts/bump-version.sh` changes their `?v=` and the cache name in `sw.js`, so **always run it before committing**: without it, phones keep the old files.
-- **Supabase** (logins, clients, sales) is never cached: data always comes from the database.
+[`sw.js`](sw.js) keeps the app's files on the phone, so after the first visit the app opens without waiting for the network:
+- **The page** (`index.html`) opens from the phone's copy at once. Meanwhile the fresh page is fetched and saved. When it changed (a new deploy), the app reloads itself into the new version: right away if nobody has touched the screen yet, otherwise the next time it goes to the background with nothing half done (no sale, client, password or window being filled in). So a deploy shows up on that launch or the next one, never in the middle of a sale. With no copy yet (first visit), it waits for the network.
+- **css/js** (with `?v=`), images, fonts and the pinned CDN libraries (supabase-js, the PDF libraries) come from the phone's cache. `scripts/bump-version.sh` changes their `?v=` and the cache name in `sw.js`, so **always run it before committing** (the git hook does it): without it, phones keep the old files.
+- **Supabase** (logins, clients, sales) is never cached by the service worker: requests always go to the database.
 - It doesn't run on `localhost` / `127.0.0.1`, so local edits always show up. (`http://[::1]:8000` does run it, for testing.)
+
+**Opening before the network answers.** The app opens on the screen the login saw last, using the role saved on the phone, while supabase-js checks the session (it refreshes the token when it's over an hour old). If the session was refused (e.g. the Professor password changed), it goes to the login screen. Without internet it stays open with what's saved, and the requests show their own errors.
+
+**Clients saved on the phone.** The client list and plan statuses (names, CPFs, WhatsApp numbers, plan dates; never sale values) are saved on the phone after each load, per login, so the client search in Nova venda works the moment the app opens. Every launch reloads them from the database. **Sair** (or a refused session) deletes the saved copy. On a first login, until the clients arrive the list says "Carregando clientes…" and no client can be registered (so nobody is registered twice).
+
+**Fonts** are served from this site ([`fonts/`](fonts/), SIL Open Font License), not from Google Fonts: one server fewer to wait for on the first visit.
 
 **Kill switch**: if the cache ever causes trouble, replace all of `sw.js` with this and deploy. On their next launch phones drop the cache and the service worker; the launch after that loads everything from the network (harmless to leave in place, even with the registration still in `js/app.js`):
 ```js

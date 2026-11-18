@@ -1,6 +1,190 @@
 /* ════════════════════════════════════════════════════════════
    Studio Fitness — black, red light beams and chrome
    ════════════════════════════════════════════════════════════ */
+
+/* ── Fonts, served from this site (fonts/): no third-party stylesheet holding up the first screen.
+   Google Fonts files (SIL Open Font License), latin + latin-ext only; a latin-ext file downloads only when
+   a name actually has one of its letters. Same weights as the screens use. */
+/* Alfa Slab One 400, latin-ext */
+@font-face {
+  font-family: 'Alfa Slab One';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../fonts/alfa-slab-one-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Alfa Slab One 400, latin */
+@font-face {
+  font-family: 'Alfa Slab One';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../fonts/alfa-slab-one-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow 400, latin-ext */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../fonts/barlow-400-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow 400, latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(../fonts/barlow-400-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow 500, latin-ext */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(../fonts/barlow-500-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow 500, latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(../fonts/barlow-500-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow 600, latin-ext */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(../fonts/barlow-600-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow 600, latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(../fonts/barlow-600-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow 700, latin-ext */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../fonts/barlow-700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow 700, latin */
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../fonts/barlow-700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow Condensed 600 italic, latin-ext */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-600i-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow Condensed 600 italic, latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-600i-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow Condensed 700 italic, latin-ext */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-700i-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow Condensed 700 italic, latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-700i-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow Condensed 800 italic, latin-ext */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 800;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-800i-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow Condensed 800 italic, latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 800;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-800i-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow Condensed 900 italic, latin-ext */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 900;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-900i-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow Condensed 900 italic, latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: italic;
+  font-weight: 900;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-900i-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Barlow Condensed 700, latin-ext */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-700-latin-ext.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* Barlow Condensed 700, latin */
+@font-face {
+  font-family: 'Barlow Condensed';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(../fonts/barlow-condensed-700-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 :root {
   color-scheme: dark;
 
@@ -739,23 +923,49 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
 .insight-sub { margin: -4px 0 12px; font-size: .88rem; color: var(--muted); line-height: 1.4; }
 .chart-readout { margin: 0 0 10px; font-size: .9rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .chart-readout strong { color: var(--text); font-size: 1.05rem; }
-/* Monthly bars: one hue; this month brighter; the tapped bar outlined */
-.mbars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; height: 150px; }
-.mbar { all: unset; cursor: pointer; display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
-.mbar-col { flex: 1; display: flex; align-items: flex-end; border-radius: 4px 4px 0 0; }
-.mbar-fill { display: block; width: 100%; background: rgba(225, 6, 0, .55); border-radius: 4px 4px 0 0; }
-.mbar.current .mbar-fill { background: var(--red-bright); }
-.mbar.selected .mbar-col { background: rgba(255, 255, 255, .06); }
-.mbar.selected .mbar-fill { box-shadow: 0 0 0 2px #fff; }
-.mbar-label { text-align: center; font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
-.mbar.selected .mbar-label { color: var(--text); font-weight: 700; }
-.mbar:focus-visible .mbar-col { outline: 2px solid #fff; outline-offset: 2px; }
+/* Charts (SVG drawn at the panel's width): tap or drag to pick a point, arrows with the keyboard */
+.chart { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+.chart-pick { touch-action: pan-y; cursor: crosshair; -webkit-tap-highlight-color: transparent; user-select: none; }
+.chart:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 6px; }
+.chart-legend { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .86rem; }
+.chart-legend li { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.swatch-round { border-radius: 50%; }
+.legend-detail { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.segbar + .chart-legend { flex-direction: column; }
+/* One whole in parts: a tall segmented bar, 2px surface gaps, share printed only where it fits */
+.segbar { display: flex; gap: 2px; height: 28px; }
+.seg { min-width: 3px; border-radius: 4px; display: flex; align-items: center; padding: 0 7px; font-size: .78rem; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Days per week: a tile per option */
+.share-tiles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 8px; }
+.share-tile { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 255, 255, .02); }
+.share-tile.top { border-color: rgba(255, 59, 48, .55); background: rgba(255, 59, 48, .07); }
+.share-label { font-size: .76rem; color: var(--muted); line-height: 1.2; }
+.share-value { font-family: var(--font-display); font-style: italic; font-weight: 800; font-size: 1.7rem; line-height: 1; }
+.share-meter { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.share-meter span { display: block; height: 100%; border-radius: 3px; background: #6e6e78; }
+.share-tile.top .share-meter span { background: #ff3b30; }
+.share-count { font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Weekday bubbles: area = number of sales */
+.bubbles { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.bubbles li { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+.bubble-slot { display: flex; align-items: center; justify-content: center; width: 100%; }
+.bubble { display: block; border-radius: 50%; }
+.bubble-value { font-size: .88rem; font-variant-numeric: tabular-nums; }
+.bubble-label { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+/* "Ver números": every value of the chart as a table */
+.chart-table summary { width: max-content; margin-top: 10px; color: var(--muted); font-size: .8rem; cursor: pointer; }
+.chart-table table { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
+.chart-table th, .chart-table td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; }
+.chart-table th:first-child, .chart-table td:first-child { text-align: left; }
+.chart-table th { color: var(--muted); font-weight: 600; }
 /* Horizontal bars */
-.hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.hbar { display: grid; grid-template-columns: 76px 1fr auto; align-items: center; gap: 10px; font-size: .88rem; }
+.hbars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px 12px; font-size: .88rem; }
+.hbar { display: contents; } /* one grid for all rows: every track starts and ends at the same place */
 .hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hbar-track { height: 10px; background: rgba(255, 255, 255, .06); border-radius: 4px; overflow: hidden; }
-.hbar-fill { display: block; height: 100%; background: var(--red); border-radius: 4px; }
+.hbar-track { height: 10px; background: rgba(255, 255, 255, .06); border-radius: 0 4px 4px 0; overflow: hidden; }
+.hbar-fill { display: block; height: 100%; background: #ff3b30; border-radius: 0 4px 4px 0; }
 .hbar-value { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: .8rem; }
 /* Six nav buttons (Anderson) must fit a 360 px phone */
 .bottomnav button { min-width: 0; overflow: hidden; }
@@ -764,3 +974,64 @@ input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; a
   .bottomnav button { font-size: .7rem; letter-spacing: 0; }
 }
 .kpi-value { white-space: nowrap; font-size: clamp(1.15rem, 5.4vw, 1.6rem); overflow-wrap: normal; }
+
+/* ───────── Large screens (tablet sideways, computer): every tab uses the width ─────────
+   Up to 1240 px; forms in columns, lists as a grid of cards. Phones keep the single column above. */
+@media (min-width: 880px) {
+  main { max-width: 1240px; padding-left: 24px; padding-right: 24px; }
+
+  /* Nova venda: Cliente and Pagamento on the left, Plano on the right, Fechamento across, buttons at the right */
+  #sale-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; align-items: start; }
+  #sale-form > .panel { margin-bottom: 16px; }
+  #sale-form > .panel:nth-child(1) { grid-column: 1; grid-row: 1; }
+  #sale-form > .panel:nth-child(2) { grid-column: 1; grid-row: 2; }
+  #sale-form > .panel:nth-child(3) { grid-column: 2; grid-row: 1 / span 2; }
+  #sale-form > .panel:nth-child(4) { grid-column: 1 / -1; display: grid; grid-template-columns: 2fr 1fr; column-gap: 16px; align-items: end; }
+  #sale-form > .panel:nth-child(4) .panel-head { grid-column: 1 / -1; }
+  #sale-form > .panel:nth-child(4) .field { margin-bottom: 0; }
+  #sale-form > .error { grid-column: 1 / -1; }
+  /* "Fechar venda" always in view: it sticks above the bottom bar while the form is taller than the screen */
+  /* Buttons across the row: Limpar at the left edge (under the left column), Fechar venda filling the right column */
+  #sale-form > .actions {
+    grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px;
+    padding: 4px 6px 0; position: sticky; bottom: calc(var(--nav-h) + 14px); z-index: 4;
+  }
+  #sale-form > .actions .btn-ghost { justify-self: start; width: min(240px, 100%); }
+
+  /* Histórico and Clientes: cards side by side */
+  .list-sales, .list-clients { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .list li.muted, .list li.list-sentinel { grid-column: 1 / -1; }
+  .custom-range { max-width: 720px; }
+  .totalbar { max-width: 1192px; }
+
+  /* Client form: name, CPF and WhatsApp in one row */
+  #client-form { display: grid; grid-template-columns: 2fr 1fr 1fr; column-gap: 14px; grid-auto-flow: row dense; align-items: center; }
+  #client-form > :not(.field) { grid-column: 1 / -1; }
+  #client-form > .field { margin-bottom: 16px; }
+  #client-form > .actions { grid-column: 2 / -1; }
+  #client-form > .client-delete { grid-column: 1; justify-self: start; width: auto; margin: 6px 0 0; padding-left: 22px; padding-right: 22px; } /* beside the buttons */
+
+  /* Ajustes: Senhas across (the two logins side by side), Banco and Plano grátis side by side, Dados across */
+  #view-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  #view-settings > .panel { margin: 0; }
+  #view-settings > .panel:nth-of-type(1), #view-settings > .panel:nth-of-type(4), #view-settings > .usage-foot { grid-column: 1 / -1; }
+  #view-settings > .panel:nth-of-type(1) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 32px; }
+  #view-settings > .panel:nth-of-type(1) .panel-head { grid-column: 1 / -1; }
+  #view-settings > .panel:nth-of-type(4) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; }
+  #view-settings > .panel:nth-of-type(4) .panel-head { grid-column: 1 / -1; }
+  #view-settings .pw-form + .pw-form, #view-settings .data-block + .data-block { margin-top: 0; padding-top: 0; border-top: 0; }
+  #view-settings .data-block { display: flex; flex-direction: column; }
+  #view-settings .data-block .data-text { flex: 1; }
+
+  /* Insights: the indicators in one row, the charts in two columns (the ones over time across the row).
+     The charts are drawn for their column's width (js/app.js). */
+  .insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .insights > .kpis, .insights > .insights-empty, .insights > .insight-wide { grid-column: 1 / -1; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+  .kpi-value { font-size: 1.6rem; }
+
+  /* Bottom bar: the buttons grouped in the middle, not spread across the whole screen */
+  .bottomnav { justify-content: center; }
+  .bottomnav button { flex: 0 1 170px; }
+}
+@media (max-width: 559px) { .share-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

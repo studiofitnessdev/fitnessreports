@@ -240,28 +240,59 @@
   // edited during development (without running bump-version.sh) are never served from an old cache.
   if ('serviceWorker' in navigator && !/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
     window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker:', err)));
+    // The app opens from the phone's copy; sw.js says 'sf:update' when it finds a new deploy. Reload into it
+    // only when nothing would be lost: right away if the app wasn't touched yet, else when it goes to the
+    // background (never with a sale, client, form or window half done). At most once per 5 minutes.
+    // Not when a tap in the app itself just sent it to the background (WhatsApp button, the file picker of
+    // Importar clientes): the user is coming back to that screen. Home or Back has no tap: that one reloads.
+    let interacted = false;
+    let updateReady = false;
+    let lastTap = 0;
+    document.addEventListener('pointerdown', () => { interacted = true; lastTap = Date.now(); }, { capture: true, passive: true });
+    document.addEventListener('keydown', () => { interacted = true; }, { capture: true, once: true });
+    const nothingToLose = () => !document.querySelector('dialog[open]')
+      && $('#celebrate').hidden && $('#client-form').hidden && $('#import-confirm').hidden
+      && !$('#sale-client').value && !/[1-9]/.test($('#sale-amount').value) && $('#sale-notes').value === lastAutoNote
+      && !$('#login-password').value && !$$('.pw-form input').some((i) => i.value);
+    const reloadIntoUpdate = () => {
+      if (!updateReady || !nothingToLose()) return;
+      try {
+        const last = +sessionStorage.getItem('sf:reloadedAt') || 0;
+        if (Date.now() - last < 5 * 60_000) return; // the server answering old and new pages in turns (mid-deploy)
+        sessionStorage.setItem('sf:reloadedAt', String(Date.now()));
+      } catch (_) { /* storage unavailable: reload anyway */ }
+      location.reload();
+    };
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data !== 'sf:update') return;
+      updateReady = true;
+      if (!interacted) reloadIntoUpdate();
+    });
+    document.addEventListener('visibilitychange', () => { if (document.hidden && Date.now() - lastTap > 3000) reloadIntoUpdate(); });
   }
 
   // ───────────────────────── Supabase ─────────────────────────
   const configured = CFG && !CFG.supabaseUrl.includes('YOUR-') && !CFG.supabaseKey.includes('YOUR-');
   const sb = configured ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey) : null;
 
-  // First page alone (most queries fit in it); if it's full, the next pages go out 4 at a time in parallel.
+  // All rows, PAGE_SIZE per request. `expected` (how many rows came last time) sends every page it needs
+  // at once, so a list of 1800 clients takes one round trip instead of two; without it the first page
+  // goes alone (most queries fit in it). While pages come back full, the next ones go out 4 at a time.
   // The query needs a unique final sort key (e.g. id) so pages never overlap or skip rows.
   const PARALLEL_PAGES = 4;
-  async function fetchAll(buildQuery) {
+  async function fetchAll(buildQuery, expected = 0) {
     const page = async (n) => {
       const { data, error } = await buildQuery().range(n * PAGE_SIZE, (n + 1) * PAGE_SIZE - 1);
       if (error) throw error;
       return data;
     };
-    const rows = await page(0);
-    for (let n = 1; rows.length === n * PAGE_SIZE; n += PARALLEL_PAGES) {
-      const pages = await Promise.all(Array.from({ length: PARALLEL_PAGES }, (_, k) => page(n + k)));
+    const rows = [];
+    let batch = Math.min(8, Math.max(1, Math.ceil((expected + 1) / PAGE_SIZE)));
+    for (let n = 0; ; n += batch, batch = PARALLEL_PAGES) {
+      const pages = await Promise.all(Array.from({ length: batch }, (_, k) => page(n + k)));
       for (const data of pages) rows.push(...data);
-      if (pages.some((data) => data.length < PAGE_SIZE)) break;
+      if (pages.some((data) => data.length < PAGE_SIZE)) return rows;
     }
-    return rows;
   }
 
   // ───────────────────────── Login ─────────────────────────
@@ -306,6 +337,12 @@
     state.clientsDirty = true;
     resetImport();
     $('#import-status').hidden = true;
+    // The clients and plan statuses (with CPFs and WhatsApp numbers) leave memory and the phone too
+    state.userId = null;
+    state.dataGen++;
+    state.clients = []; state.subs = null; state.subsAt = 0; state.clientsReady = false;
+    clientsChanged();
+    clearLocalData();
   }
 
   // A failed sign-in: wrong password only when the server says so; no internet is not a wrong password.
@@ -362,16 +399,30 @@
     showView('sale');
   }
 
+  // Called once per login: at boot with the session saved on the phone (before supabase-js has even
+  // checked it, so the app shows at once), or after signing in. With the role and the clients saved from
+  // the last visit, the screen is ready before any request; the requests then wait inside supabase-js for
+  // the session check (and a token refresh, when it expired) and refresh everything quietly.
   async function enterApp(user) {
+    if (state.userId === user.id) return;
+    state.userId = user.id;
+    state.dataGen++;
     let cached = null;
     try { cached = localStorage.getItem(ROLE_KEY + user.id); } catch (_) { /* storage unavailable */ }
     if (cached) { applyRole(cached); showApp(); }
+    loadLocalData(user.id);
     loadClients();
     loadSubscriptions();
 
     const { data, error } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
+    if (state.userId !== user.id) return; // logged out meanwhile
     if (error && cached) return; // network hiccup: keep going with the cached role
     if (error || !data) {
+      // The saved session may have just been refused (e.g. the Professor password changed): that's a
+      // logged-out phone, not a login without profile.
+      const { data: { session } } = await sb.auth.getSession();
+      if (state.userId !== user.id) return;
+      if (!session) return showLogin();
       try { localStorage.removeItem(ROLE_KEY + user.id); } catch (_) { /* ignore */ }
       await sb.auth.signOut();
       return showLogin('Usuário sem perfil configurado no banco.');
@@ -389,7 +440,7 @@
     $$('.bottomnav [data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
     $('#view-title').textContent = TITLES[name];
     $('#totalbar').hidden = name !== 'history' || state.role !== 'owner';
-    if (name === 'history') { loadHistory(); if (state.role === 'owner') whenIdle(() => loadPdfLibs().catch(() => {})); }
+    if (name === 'history') { loadHistory(); if (state.role === 'owner') whenIdle(prefetchPdfLibs); }
     if (name === 'settings') {
       loadUsage();
       $$('.pw-form').forEach((f) => { f.reset(); f.querySelectorAll('.invalid').forEach((n) => n.classList.remove('invalid')); });
@@ -410,39 +461,120 @@
   // and the WhatsApp fields stay hidden (so a deploy before the SQL never empties Clientes).
   const isMissingPhone = (err) => !!err && (err.code === '42703' || err.code === 'PGRST204' || /phone/.test(err.message || ''));
   state.hasPhone = false;
-  async function loadClients() {
-    const query = (cols) => fetchAll(() => sb.from('clients').select(cols).order('name').order('id'));
-    try {
+  state.clientsReady = false; // clients loaded (from the server or the phone's copy): until then nobody can be registered
+  state.dataGen = 0;          // bumped on every login/logout: answers that arrive later for another login are dropped
+  state.userId = null;
+
+  // Answers to keep: same login, and the session is still valid. A session refused on the way (password
+  // changed) turns requests anonymous, and those come back empty instead of failing: never take that as
+  // "no clients".
+  async function stillSignedIn(gen) {
+    if (gen !== state.dataGen) return false;
+    const { data: { session } } = await sb.auth.getSession();
+    return gen === state.dataGen && session?.user?.id === state.userId;
+  }
+
+  const showPhoneFields = () => $$('.phone-field').forEach((n) => { n.hidden = !state.hasPhone; });
+  // Unchanged data isn't drawn again (a list scrolled halfway stays where it is)
+  const sameClients = (a, b) => a.length === b.length
+    && a.every((c, i) => c.id === b[i].id && c.name === b[i].name && c.cpf === b[i].cpf && (c.phone ?? null) === (b[i].phone ?? null));
+  const sameSubs = (a, rows) => !!a && a.size === rows.length
+    && rows.every((r) => { const o = a.get(r.client_id); return o && o.plan === r.plan && o.plan_start === r.plan_start && o.plan_end === r.plan_end; });
+
+  let clientsLoading = null;
+  function loadClients() {
+    const gen = state.dataGen;
+    const job = (async () => {
+      const expected = state.clients.length;
+      const query = (cols) => fetchAll(() => sb.from('clients').select(cols).order('name').order('id'), expected);
+      let rows, hasPhone;
       try {
-        state.clients = await query('id, name, cpf, phone');
-        state.hasPhone = true;
+        try {
+          rows = await query('id, name, cpf, phone');
+          hasPhone = true;
+        } catch (err) {
+          if (!isMissingPhone(err)) throw err;
+          rows = await query('id, name, cpf');
+          hasPhone = false;
+        }
       } catch (err) {
-        if (!isMissingPhone(err)) throw err;
-        state.clients = await query('id, name, cpf');
-        state.hasPhone = false;
+        console.error(err);
+        if (gen !== state.dataGen) return;
+        toast(state.clientsReady ? 'Sem conexão: clientes podem estar desatualizados.' : 'Erro ao carregar clientes.');
+        if (!state.clientsReady) clientsChanged(); // an open client list swaps "Carregando…" for the error
+        return;
       }
-      $$('.phone-field').forEach((n) => { n.hidden = !state.hasPhone; });
-    } catch (err) {
-      console.error(err);
-      toast('Erro ao carregar clientes.');
-      return;
-    }
-    for (const c of state.clients) c.key = searchKey(c.name);
-    clientsChanged();
+      if (!await stillSignedIn(gen)) return;
+      state.hasPhone = hasPhone;
+      showPhoneFields();
+      const wasReady = state.clientsReady;
+      state.clientsReady = true;
+      if (sameClients(state.clients, rows)) { if (!wasReady) clientsChanged(); return; }
+      for (const c of rows) c.key = searchKey(c.name);
+      state.clients = rows;
+      clientsChanged();
+    })();
+    clientsLoading = job;
+    job.finally(() => { if (clientsLoading === job) clientsLoading = null; });
+    return job;
   }
 
   // Plan status per client. Comes from a database function that returns only plan dates (no values),
   // so it works for the teacher too, who can't read the sales table.
   async function loadSubscriptions() {
+    const gen = state.dataGen;
     state.subsAt = Date.now();
+    let rows;
     try {
-      const rows = await fetchAll(() => sb.rpc('client_subscriptions').order('client_id'));
-      state.subs = new Map(rows.map((r) => [r.client_id, r]));
+      rows = await fetchAll(() => sb.rpc('client_subscriptions').order('client_id'), state.subs?.size || 0);
     } catch (err) {
       console.warn('Status do plano indisponível: rode supabase/003_subscriptions.sql no Supabase.', err);
       return;
     }
+    if (!await stillSignedIn(gen)) return;
+    if (sameSubs(state.subs, rows)) return;
+    state.subs = new Map(rows.map((r) => [r.client_id, r]));
     clientsChanged();
+  }
+
+  // ── Copy of the clients and plan statuses on the phone, per login, so the next launch has them at once
+  // (the search in Nova venda works before any request). Refreshed from the server on every launch;
+  // deleted on logout. Only names, CPFs, WhatsApp numbers and plan dates: never sale values.
+  const LOCAL_KEY = 'sf:data:';
+  function loadLocalData(uid) {
+    let d = null;
+    try { d = JSON.parse(localStorage.getItem(LOCAL_KEY + uid)); } catch (_) { /* none, or storage unavailable */ }
+    if (d?.v !== 1 || !Array.isArray(d.clients)) return;
+    for (const c of d.clients) c.key = searchKey(c.name);
+    state.clients = d.clients;
+    state.hasPhone = !!d.hasPhone;
+    state.subs = Array.isArray(d.subs) ? new Map(d.subs.map((r) => [r.client_id, r])) : null;
+    state.clientsReady = true;
+    showPhoneFields();
+    clientsChanged();
+  }
+  let saveLocalQueued = false;
+  function saveLocalData() {
+    if (saveLocalQueued || !state.userId || !state.clientsReady) return;
+    saveLocalQueued = true;
+    setTimeout(() => whenIdle(() => {
+      saveLocalQueued = false;
+      if (!state.userId || !state.clientsReady) return;
+      const d = {
+        v: 1, hasPhone: state.hasPhone,
+        clients: state.clients.map(({ id, name, cpf, phone }) => ({ id, name, cpf, phone })),
+        subs: state.subs ? Array.from(state.subs.values(), ({ client_id, plan, plan_start, plan_end }) => ({ client_id, plan, plan_start, plan_end })) : null,
+      };
+      try { localStorage.setItem(LOCAL_KEY + state.userId, JSON.stringify(d)); } catch (_) { /* full or unavailable: next launch loads from the server */ }
+    }), 1000);
+  }
+  function clearLocalData() {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(LOCAL_KEY)) localStorage.removeItem(k);
+      }
+    } catch (_) { /* storage unavailable */ }
   }
 
   // A Diária is a one-off visit, not a plan to renew: it never counts as the client's plan (Vencendo /
@@ -471,6 +603,7 @@
   state.nameCount = new Map(); // name → how many clients have it (homonyms must be picked from the list)
   function clientsChanged() {
     state.clientsDirty = true;
+    saveLocalData();
     state.nameCount = new Map();
     for (const c of state.clients) state.nameCount.set(c.name, (state.nameCount.get(c.name) || 0) + 1);
     if (clientsChangedFrame) return;
@@ -624,6 +757,7 @@
     const cpf = cpfInput.value.replace(/\D/g, '') || CPF_NONE;
     const phone = phoneInput.value.replace(/\D/g, '');
     const self = selfId ? state.clients.find((c) => String(c.id) === String(selfId)) : null;
+    if (!state.clientsReady) return { error: 'Carregando os clientes… Tente de novo em instantes.' }; // can't check repeats yet
     if (!name) return { error: 'Informe o nome.' };
     if (cpf.length !== 11) return { error: 'CPF deve ter 11 dígitos (ou deixe em branco).' };
     // The check digits catch a mistyped CPF. One already saved that way (older imports) can stay as it is.
@@ -1108,6 +1242,9 @@
       return showError(errBox, 'Não foi possível ler a planilha. Use um arquivo .xlsx ou .csv.');
     }
     if (!rows || !rows.length) return showError(errBox, 'Nenhum cliente encontrado na planilha.');
+    // Compared against the clients from the server, never a half-loaded list (everyone would look new)
+    if (clientsLoading) await clientsLoading;
+    if (!state.clientsReady) return showError(errBox, 'Os clientes ainda não carregaram. Verifique a internet e tente de novo.');
 
     // Skip who is already in the app (or earlier in the file): same CPF, or same name when there is no CPF.
     // A client already in the app without WhatsApp gets the sheet's phone (only when the match is certain:
@@ -1450,6 +1587,12 @@
 
   function renderCombo() {
     const q = comboInput.value;
+    if (!state.clientsReady) { // without the list, "Cadastrar" could register someone who's already there
+      comboItems = [];
+      comboList.replaceChildren(el('li', 'combo-hint', clientsLoading ? 'Carregando clientes…' : 'Sem conexão: não foi possível carregar os clientes.'));
+      setComboActive(-1);
+      return;
+    }
     const found = matchClients(q);
     comboItems = [];
     const nodes = found.slice(0, COMBO_MAX).map((c) => comboOption(`opt-${c.id}`, null, [
@@ -1480,6 +1623,7 @@
   window.addEventListener('scroll', fitCombo, { passive: true });
 
   function openCombo() {
+    if (!state.clientsReady && !clientsLoading && state.userId) loadClients(); // try again
     renderCombo();
     comboList.hidden = false;
     comboInput.setAttribute('aria-expanded', 'true');
@@ -2065,7 +2209,7 @@
       const rows = await fetchAll(() => sb.from('sales')
         .select('id, created_at, amount, payment_method, plan, days_per_week, class_time, client_id, plan_end')
         .gte('created_at', from.toISOString())
-        .order('created_at').order('id'));
+        .order('created_at').order('id'), state.insights?.rows.length || 0);
       if (state.role !== 'owner') return; // logged out meanwhile
       state.insights = { at: Date.now(), rows };
       if (!$('#view-insights').hidden) renderInsights(rows);
@@ -2125,35 +2269,343 @@
     return order ? groups.filter((g) => g.count || order.includes(g.key)) : groups.sort((a, b) => b.count - a.count);
   }
 
-  function monthChart(months) {
-    const max = Math.max(1, ...months.map((m) => m.total));
+  // ── Chart pieces. SVG is drawn at the panel's real width (never stretched), so text and dots keep their shape.
+  // Colors validated for this dark surface (dataviz validator): one accent for single series, red + blue for
+  // the two client series, and one-hue red ramps (light → dark steps) where the categories have an order.
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const svgEl = (tag, attrs, parent) => {
+    const n = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, v);
+    if (parent) parent.append(n);
+    return n;
+  };
+  const CHART = {
+    accent: '#ff3b30', second: '#5b86d6', gray: '#6e6e78', surface: '#121214',
+    grid: 'rgba(255, 255, 255, .1)', hair: 'rgba(255, 255, 255, .28)', muted: '#9b9ba3', text: '#f5f5f6',
+    plans: { diaria: '#9a1f15', mensal: '#c42a1e', trimestral: '#ec3d2f', semestral: '#ff7466', anual: '#ffaba1' },
+  };
+  const LIGHT_FILLS = new Set(['#ffaba1']); // text inside them is near-black, else white
+  // Width of the chart inside its panel: the whole row (`full`) or one column of the grid (2 on large screens)
+  const chartWidth = (full) => {
+    const body = $('#insights-body');
+    const css = getComputedStyle(body);
+    const cols = full ? 1 : css.gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+    const gap = parseFloat(css.columnGap) || 14;
+    return Math.max(240, Math.round(((body.clientWidth || 340) - gap * (cols - 1)) / cols - 34));
+  };
+  const moneyShort = (v) => (v >= 1000 ? `R$ ${dec1.format(v / 1000)} mil` : fmtMoney(v));
+
+  // Smooth line through the points that never swings past them (monotone cubic): a month with no sales
+  // stays on the baseline instead of dipping below it.
+  function smoothPath(pts) {
+    const n = pts.length;
+    if (n < 2) return n ? `M${pts[0][0]},${pts[0][1]}` : '';
+    const dx = [], m = [], t = [];
+    for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / dx[i]; }
+    t[0] = m[0]; t[n - 1] = m[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+      t[i] = m[i - 1] * m[i] <= 0 ? 0 : (3 * (dx[i - 1] + dx[i])) / ((2 * dx[i] + dx[i - 1]) / m[i - 1] + (dx[i] + 2 * dx[i - 1]) / m[i]);
+    }
+    let d = `M${pts[0][0]},${pts[0][1]}`;
+    for (let i = 0; i < n - 1; i++) {
+      const h = dx[i] / 3;
+      d += `C${pts[i][0] + h},${pts[i][1] + t[i] * h} ${pts[i + 1][0] - h},${pts[i + 1][1] - t[i + 1] * h} ${pts[i + 1][0]},${pts[i + 1][1]}`;
+    }
+    return d;
+  }
+  // Column with a rounded top and a square foot on the baseline
+  const roundTop = (x, y, w, h, r) => {
+    r = Math.min(r, h, w / 2);
+    return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+  };
+
+  // Tap, drag or arrow keys pick the nearest point; `onPick(i)` redraws the highlight and the readout.
+  function pickable(svg, xs, onPick, start = xs.length - 1) {
+    let cur = -1;
+    const pick = (i) => {
+      i = Math.max(0, Math.min(xs.length - 1, i));
+      if (i !== cur) { cur = i; onPick(i); }
+    };
+    const fromEvent = (e) => {
+      const r = svg.getBoundingClientRect();
+      const x = ((e.clientX - r.left) * svg.viewBox.baseVal.width) / r.width;
+      let best = 0;
+      xs.forEach((v, i) => { if (Math.abs(v - x) < Math.abs(xs[best] - x)) best = i; });
+      pick(best);
+    };
+    svg.addEventListener('pointerdown', fromEvent);
+    svg.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) fromEvent(e); });
+    svg.setAttribute('tabindex', '0');
+    svg.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      pick(cur + (e.key === 'ArrowLeft' ? -1 : 1));
+      e.preventDefault();
+    });
+    pick(start);
+  }
+  // The picked point: a soft band behind it (colors stay true) and its label in bold
+  function selectionBand(svg, top, bottom, width) {
+    const band = svgEl('rect', { y: top, height: bottom - top, width, rx: 6, fill: 'rgba(255, 255, 255, .06)' });
+    svg.insertBefore(band, svg.firstChild.nextSibling);
+    return (x) => band.setAttribute('x', x - width / 2);
+  }
+  const boldOnly = (labels, i) => labels.forEach((t, k) => { t.setAttribute('fill', k === i ? CHART.text : CHART.muted); t.setAttribute('font-weight', k === i ? 700 : 400); });
+  const readoutLine = () => { const p = el('p', 'chart-readout'); p.setAttribute('aria-live', 'polite'); return p; };
+  const setReadout = (node, strong, rest) => node.replaceChildren(el('strong', null, strong), rest);
+  const svgText = (parent, x, y, text, attrs = {}) => {
+    const t = svgEl('text', { x, y, fill: CHART.muted, 'font-size': 10.5, 'text-anchor': 'middle', ...attrs }, parent);
+    t.textContent = text;
+    return t;
+  };
+  // Every value of a chart, as a table (for whoever can't read the marks)
+  function numbersTable(head, rows) {
+    const box = el('details', 'chart-table');
+    box.append(el('summary', null, 'Ver números'));
+    const table = el('table');
+    const tr = el('tr');
+    head.forEach((h) => tr.append(el('th', null, h)));
+    const thead = el('thead');
+    thead.append(tr);
+    const tbody = el('tbody');
+    for (const r of rows) { const row = el('tr'); r.forEach((c) => row.append(el('td', null, c))); tbody.append(row); }
+    table.append(thead, tbody);
+    box.append(table);
+    return box;
+  }
+  // Legend: a swatch beside each name (text keeps the text color; the swatch carries the identity)
+  function legend(items, shape = 'square') {
+    const ul = el('ul', 'chart-legend');
+    for (const it of items) {
+      const li = el('li');
+      const sw = el('span', `swatch swatch-${shape}`);
+      sw.style.background = it.color;
+      li.append(sw, el('span', null, it.label));
+      if (it.detail) li.append(el('span', 'legend-detail', it.detail));
+      ul.append(li);
+    }
+    return ul;
+  }
+
+  // Revenue per month: a smooth line with a soft wash under it. The best month is labeled; tap any month.
+  function revenueChart(months) {
     const best = months.reduce((a, b) => (b.total > a.total ? b : a));
     const withSales = months.filter((m) => m.count);
     const avg = withSales.length ? withSales.reduce((n, m) => n + m.total, 0) / withSales.length : 0;
     const panel = insightPanel('Receita por mês', `Média de ${fmtMoney(avg)} por mês com vendas · melhor: ${MONTHS_SHORT[best.m]}/${String(best.y).slice(2)} (${fmtMoney(best.total)})`);
-    const readout = el('p', 'chart-readout');
-    const bars = el('div', 'mbars');
-    const select = (i) => {
+    const readout = readoutLine();
+    const W = chartWidth(true), H = Math.round(Math.max(176, Math.min(300, W * 0.26))), T = 28, B = 24, L = 12, R = 12, base = H - B;
+    const max = Math.max(1, ...months.map((m) => m.total));
+    const xs = months.map((_, i) => L + (i * (W - L - R)) / (months.length - 1));
+    const y = (v) => T + (1 - v / max) * (base - T);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart chart-pick', role: 'img',
+      'aria-label': `Receita por mês, de ${MONTHS_LONG[months[0].m]} de ${months[0].y} a ${MONTHS_LONG[months[11].m]} de ${months[11].y}. Setas mudam o mês.` });
+    const grad = svgEl('linearGradient', { id: 'rev-wash', x1: 0, y1: 0, x2: 0, y2: 1 }, svgEl('defs', {}, svg));
+    svgEl('stop', { offset: '0', 'stop-color': CHART.accent, 'stop-opacity': '.26' }, grad);
+    svgEl('stop', { offset: '1', 'stop-color': CHART.accent, 'stop-opacity': '0' }, grad);
+    svgEl('line', { x1: L, x2: W - R, y1: base, y2: base, stroke: CHART.grid }, svg);
+    const line = smoothPath(months.map((m, i) => [xs[i], y(m.total)]));
+    svgEl('path', { d: `${line}L${xs[11]},${base}L${xs[0]},${base}Z`, fill: 'url(#rev-wash)' }, svg);
+    const cross = svgEl('line', { y1: T - 8, y2: base, stroke: CHART.hair }, svg);
+    svgEl('path', { d: line, fill: 'none', stroke: CHART.accent, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+    if (best.total) { // the extreme gets its label
+      const bi = months.indexOf(best);
+      const anchor = bi === 0 ? 'start' : bi === 11 ? 'end' : 'middle';
+      svgText(svg, xs[bi], y(best.total) - 10, moneyShort(best.total), { fill: CHART.text, 'font-weight': 700, 'text-anchor': anchor });
+    }
+    const labels = months.map((m, i) => svgText(svg, xs[i], H - 6, MONTHS_SHORT[m.m]));
+    const dot = svgEl('circle', { r: 5, fill: CHART.accent, stroke: CHART.surface, 'stroke-width': 2 }, svg);
+    pickable(svg, xs, (i) => {
       const m = months[i];
-      readout.replaceChildren(el('strong', null, fmtMoney(m.total)),
-        ` · ${m.count === 1 ? '1 venda' : `${num.format(m.count)} vendas`} · ${MONTHS_LONG[m.m]} de ${m.y}`);
-      [...bars.children].forEach((b, k) => b.classList.toggle('selected', k === i));
-    };
-    months.forEach((m, i) => {
-      const b = el('button', `mbar${i === months.length - 1 ? ' current' : ''}`);
-      b.type = 'button';
-      b.setAttribute('aria-label', `${MONTHS_LONG[m.m]} de ${m.y}: ${fmtMoney(m.total)}, ${m.count} vendas`);
-      const fill = el('span', 'mbar-fill');
-      fill.style.height = m.total ? `${Math.max(2, (m.total / max) * 100)}%` : '0';
-      const col = el('span', 'mbar-col');
-      col.append(fill);
-      b.append(col, el('span', 'mbar-label', MONTHS_SHORT[m.m]));
-      b.addEventListener('click', () => select(i));
-      bars.append(b);
+      cross.setAttribute('x1', xs[i]); cross.setAttribute('x2', xs[i]);
+      dot.setAttribute('cx', xs[i]); dot.setAttribute('cy', y(m.total));
+      boldOnly(labels, i);
+      setReadout(readout, fmtMoney(m.total), ` · ${m.count === 1 ? '1 venda' : `${num.format(m.count)} vendas`} · ${MONTHS_LONG[m.m]} de ${m.y}`);
     });
-    select(months.length - 1);
-    panel.append(readout, bars);
+    panel.classList.add('insight-wide');
+    panel.append(readout, svg, numbersTable(['Mês', 'Receita', 'Vendas'],
+      months.map((m) => [`${MONTHS_SHORT[m.m]}/${String(m.y).slice(2)}`, fmtMoney(m.total), num.format(m.count)])));
     return panel;
+  }
+
+  // Renewal rate per month: lollipops on a 0–100% scale; the picked month shows its percentage.
+  function renewalChart(renewal, monthName) {
+    const last = renewal[renewal.length - 1];
+    const panel = insightPanel('Renovação dos planos',
+      `Dos planos que venceram em ${MONTHS_LONG[last.m]}, ${pct(last.renewed, last.total)}% renovaram (até ${RENEW_GRACE_DAYS} dias depois)`);
+    const readout = readoutLine();
+    const W = chartWidth(), H = 160, T = 26, B = 24, L = 36, R = 16, base = H - B;
+    const n = renewal.length;
+    const xs = renewal.map((_, i) => (n === 1 ? (L + W - R) / 2 : L + 14 + (i * (W - L - R - 28)) / (n - 1)));
+    const y = (p) => T + (1 - p / 100) * (base - T);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart chart-pick', role: 'img', 'aria-label': 'Taxa de renovação por mês. Setas mudam o mês.' });
+    for (const p of [0, 50, 100]) {
+      svgEl('line', { x1: L, x2: W - R, y1: y(p), y2: y(p), stroke: CHART.grid }, svg);
+      svgText(svg, L - 6, y(p) + 3.5, `${p}%`, { 'text-anchor': 'end', 'font-size': 10 });
+    }
+    const marks = renewal.map((r, i) => {
+      const p = pct(r.renewed, r.total);
+      const g = svgEl('g', {}, svg);
+      svgEl('line', { x1: xs[i], x2: xs[i], y1: base, y2: y(p), stroke: CHART.accent, 'stroke-width': 2, 'stroke-linecap': 'round' }, g);
+      const dot = svgEl('circle', { cx: xs[i], cy: y(p), r: 6, fill: CHART.accent, stroke: CHART.surface, 'stroke-width': 2 }, g);
+      return { g, dot, p, label: svgText(svg, xs[i], H - 6, monthName(r)) };
+    });
+    const moveBand = selectionBand(svg, T - 22, H, Math.min(48, (W - L - R) / n));
+    const value = svgText(svg, 0, 0, '', { fill: CHART.text, 'font-weight': 700, 'font-size': 12 });
+    pickable(svg, xs, (i) => {
+      const r = renewal[i];
+      moveBand(xs[i]);
+      boldOnly(marks.map((mk) => mk.label), i);
+      marks.forEach((mk, k) => mk.dot.setAttribute('r', k === i ? 7.5 : 6));
+      value.setAttribute('x', xs[i]); value.setAttribute('y', y(marks[i].p) - 13);
+      value.textContent = `${marks[i].p}%`;
+      setReadout(readout, `${marks[i].p}% renovaram`, ` · ${num.format(r.renewed)} de ${num.format(r.total)} planos vencidos em ${MONTHS_LONG[r.m]}`);
+    });
+    panel.append(readout, svg, numbersTable(['Venceram em', 'Renovaram', 'Planos'],
+      renewal.map((r) => [monthName(r), `${pct(r.renewed, r.total)}%`, `${num.format(r.renewed)} de ${num.format(r.total)}`])));
+    return panel;
+  }
+
+  // New clients and renewals per month: stacked columns (new at the bottom), a 2px gap between the two.
+  function flowChart(flow, monthName) {
+    const avgFresh = flow.reduce((n, f) => n + f.fresh, 0) / flow.length;
+    const panel = insightPanel('Clientes novos por mês', `Média de ${dec1.format(avgFresh)} por mês · novo = primeiro plano em 12 meses`);
+    const readout = readoutLine();
+    const W = chartWidth(), H = 160, T = 12, B = 24, L = 8, R = 8, base = H - B, GAP = 2;
+    const band = (W - L - R) / flow.length;
+    const cw = Math.min(24, band * 0.55);
+    const xs = flow.map((_, i) => L + band * (i + 0.5));
+    const max = Math.max(1, ...flow.map((f) => f.fresh + f.renewals));
+    const h = (v) => (v / max) * (base - T - GAP);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart chart-pick', role: 'img', 'aria-label': 'Clientes novos e renovações por mês. Setas mudam o mês.' });
+    svgEl('line', { x1: L, x2: W - R, y1: base, y2: base, stroke: CHART.grid }, svg);
+    const cols = flow.map((f, i) => {
+      const g = svgEl('g', {}, svg);
+      const x = xs[i] - cw / 2, hf = h(f.fresh), hr = h(f.renewals);
+      if (hf) svgEl('path', { d: hr ? `M${x},${base}V${base - hf}H${x + cw}V${base}Z` : roundTop(x, base - hf, cw, hf, 4), fill: CHART.accent }, g);
+      if (hr) svgEl('path', { d: roundTop(x, base - hf - (hf ? GAP : 0) - hr, cw, hr, 4), fill: CHART.second }, g);
+      return svgText(svg, xs[i], H - 6, monthName(f));
+    });
+    const moveBand = selectionBand(svg, T - 6, H, Math.min(band - 4, cw + 22));
+    pickable(svg, xs, (i) => {
+      const f = flow[i];
+      moveBand(xs[i]);
+      boldOnly(cols, i);
+      setReadout(readout, f.fresh === 1 ? '1 cliente novo' : `${num.format(f.fresh)} clientes novos`,
+        ` · ${f.renewals === 1 ? '1 renovação' : `${num.format(f.renewals)} renovações`} · ${MONTHS_LONG[f.m]}`);
+    });
+    panel.append(readout, svg, legend([{ label: 'Novos', color: CHART.accent }, { label: 'Renovações', color: CHART.second }]),
+      numbersTable(['Mês', 'Novos', 'Renovações'], flow.map((f) => [monthName(f), num.format(f.fresh), num.format(f.renewals)])));
+    return panel;
+  }
+
+  // One whole split in parts, at a glance: a tall segmented bar, its share printed where it fits.
+  function segmentedBar(parts, total) { // parts: [{ key, label, color, value, detail }]
+    const W = chartWidth();
+    const bar = el('div', 'segbar');
+    const shown = parts.filter((p) => p.value > 0);
+    const printed = new Set();
+    for (const p of shown) {
+      const share = pct(p.value, total);
+      const seg = el('span', 'seg');
+      seg.style.flexGrow = String(p.value);
+      seg.style.background = p.color;
+      seg.style.color = LIGHT_FILLS.has(p.color) ? '#1a0b0a' : '#fff';
+      seg.setAttribute('role', 'img');
+      seg.setAttribute('aria-label', `${p.label}: ${share}%${p.detail ? `, ${p.detail}` : ''}`);
+      seg.title = `${p.label}: ${share}%`;
+      const px = (W * p.value) / total - 2;
+      if (px >= `${share}%`.length * 7.5 + 12) { seg.textContent = `${share}%`; printed.add(p.key); }
+      bar.append(seg);
+    }
+    const leg = legend(shown.map((p) => ({ label: p.label, color: p.color,
+      detail: [printed.has(p.key) ? '' : `${pct(p.value, total)}%`, p.detail].filter(Boolean).join(' · ') })));
+    return [bar, leg];
+  }
+
+  // Class times: how the day fills up, 05:00 to 21:00 in half hours. The peak (and the tapped slot) in the accent.
+  function hoursChart(sales) {
+    const FIRST = 5 * 60, SLOTS = 33;
+    const counts = new Array(SLOTS).fill(0);
+    for (const s of sales) {
+      const [hh, mm] = String(s.class_time || '').split(':').map(Number);
+      const i = Math.round((hh * 60 + mm - FIRST) / 30);
+      if (i >= 0 && i < SLOTS) counts[i]++;
+    }
+    const slotTime = (i) => `${pad2(Math.floor((FIRST + i * 30) / 60))}:${pad2((FIRST + i * 30) % 60)}`;
+    const ranked = counts.map((c, i) => [c, i]).filter(([c]) => c).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+    if (!ranked.length) return insightPanel('Horários mais procurados', 'Nenhuma venda com horário de aula.');
+    const peak = ranked[0][1];
+    const others = ranked.slice(1, 3).map(([, i]) => slotTime(i));
+    const panel = insightPanel('Horários mais procurados',
+      `Pico às ${slotTime(peak)}${others.length ? ` · depois ${others.join(' e ')}` : ''}`);
+    const readout = readoutLine();
+    const W = chartWidth(true), H = Math.round(Math.max(150, Math.min(230, W * 0.2))), T = 22, B = 22, L = 6, R = 6, base = H - B;
+    const band = (W - L - R) / SLOTS;
+    const cw = Math.max(3, Math.min(18, band * 0.55));
+    const xs = counts.map((_, i) => L + band * (i + 0.5));
+    const max = Math.max(1, ...counts);
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart chart-pick', role: 'img', 'aria-label': 'Vendas por horário da aula, das 05:00 às 21:00. Setas mudam o horário.' });
+    svgEl('line', { x1: L, x2: W - R, y1: base, y2: base, stroke: CHART.grid }, svg);
+    const cols = counts.map((c, i) => {
+      if (!c) return null;
+      const hgt = Math.max(2, (c / max) * (base - T));
+      return svgEl('path', { d: roundTop(xs[i] - cw / 2, base - hgt, cw, hgt, cw / 2), fill: CHART.gray }, svg);
+    });
+    for (let hr = 6; hr <= 21; hr += 3) svgText(svg, xs[(hr * 60 - FIRST) / 30], H - 6, `${pad2(hr)}h`);
+    svgText(svg, xs[peak], base - Math.max(2, (counts[peak] / max) * (base - T)) - 7, slotTime(peak), {
+      fill: CHART.text, 'font-weight': 700, 'text-anchor': peak < 3 ? 'start' : peak > SLOTS - 4 ? 'end' : 'middle' });
+    const cross = svgEl('line', { y1: T - 4, y2: base, stroke: CHART.hair }, svg);
+    cross.parentNode.insertBefore(cross, svg.children[1]); // behind the columns
+    pickable(svg, xs, (i) => {
+      cross.setAttribute('x1', xs[i]); cross.setAttribute('x2', xs[i]);
+      cols.forEach((c, k) => c?.setAttribute('fill', k === i || k === peak ? CHART.accent : CHART.gray));
+      setReadout(readout, slotTime(i), ` · ${counts[i] === 1 ? '1 venda' : `${num.format(counts[i])} vendas`}${counts[i] ? ` (${pct(counts[i], sales.length)}%)` : ''}`);
+    }, peak);
+    panel.classList.add('insight-wide');
+    panel.append(readout, svg, numbersTable(['Horário', 'Vendas'], ranked.map(([c, i]) => [slotTime(i), num.format(c)])));
+    return panel;
+  }
+
+  // Days per week: one tile per option, its share big, a bar for it, and how many plans. The most common in the accent.
+  function daysTiles(days, nPlans, topKey) {
+    const row = el('ul', 'share-tiles');
+    row.style.setProperty('--n', days.length);
+    for (const g of days) {
+      const share = pct(g.count, nPlans);
+      const li = el('li', `share-tile${g.key === topKey ? ' top' : ''}`);
+      const meter = el('span', 'share-meter');
+      const fill = el('span');
+      fill.style.width = `${share}%`;
+      meter.append(fill);
+      li.append(el('span', 'share-label', g.key.includes('+') ? `${g.key} por semana` : `${g.key}x por semana`),
+        el('strong', 'share-value', `${share}%`), meter,
+        el('span', 'share-count', g.count === 1 ? '1 plano' : `${num.format(g.count)} planos`));
+      row.append(li);
+    }
+    return row;
+  }
+
+  // Weekdays as bubbles: area follows the number of sales; the busiest day in the accent.
+  function weekdayBubbles(weekdays, topKey) {
+    const max = Math.max(1, ...weekdays.map((g) => g.count));
+    const D = Math.min(46, Math.floor(chartWidth() / 7) - 6);
+    const row = el('ul', 'bubbles');
+    for (const g of weekdays) {
+      const li = el('li');
+      li.setAttribute('aria-label', `${WEEKDAYS[g.key]}: ${g.count === 1 ? '1 venda' : `${g.count} vendas`}`);
+      const slot = el('span', 'bubble-slot');
+      slot.style.height = `${D}px`;
+      if (g.count) {
+        const b = el('span', 'bubble');
+        const d = Math.max(6, Math.round(D * Math.sqrt(g.count / max)));
+        b.style.width = b.style.height = `${d}px`;
+        b.style.background = g.key === topKey ? CHART.accent : CHART.gray;
+        slot.append(b);
+      }
+      li.append(slot, el('strong', 'bubble-value', num.format(g.count)), el('span', 'bubble-label', WEEKDAYS[g.key].slice(0, 3)));
+      row.append(li);
+    }
+    return row;
   }
 
   // New clients and renewals, from plan sales only (a Diária is a visit, counted on its own).
@@ -2201,8 +2653,18 @@
     return { flow, renewal, isRenewal };
   }
 
+  // The charts are drawn for the panel's width: draw them again when it changes (phone turned sideways)
+  let insightsWidth = 0, insightsResize = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(insightsResize);
+    insightsResize = setTimeout(() => {
+      if (!$('#view-insights').hidden && state.insights && $('#insights-body').clientWidth !== insightsWidth) renderInsights(state.insights.rows);
+    }, 200);
+  });
+
   function renderInsights(rows) {
     const body = $('#insights-body');
+    insightsWidth = body.clientWidth;
     const now = new Date();
     const from12 = new Date(now.getFullYear(), now.getMonth() - 11, 1);
     const all = rows.map((r) => ({ ...r, at: new Date(r.created_at), value: Number(r.amount) }));
@@ -2273,55 +2735,48 @@
       ...(diariasTile ? [diariasTile] : []),
     );
 
-    const panels = [grid, monthChart(months)];
+    const panels = [grid, revenueChart(months)];
 
     const monthName = (x) => `${MONTHS_SHORT[x.m]}/${String(x.y).slice(2)}`;
     if (renewal.length) {
       const last = renewal[renewal.length - 1];
-      const renewPanel = insightPanel('Renovação dos planos',
-        `Dos planos que venceram em ${MONTHS_LONG[last.m]}, ${pct(last.renewed, last.total)}% renovaram (até ${RENEW_GRACE_DAYS} dias depois)`);
-      renewPanel.append(hbars(renewal.map((r) => ({ label: monthName(r), value: pct(r.renewed, r.total), text: `${pct(r.renewed, r.total)}% · ${num.format(r.renewed)} de ${num.format(r.total)}` })), 100));
-      panels.push(renewPanel);
+      panels.push(renewalChart(renewal, monthName));
     }
 
     if (flow.some((f) => f.fresh || f.renewals)) {
-      const avgFresh = flow.reduce((n, f) => n + f.fresh, 0) / flow.length;
-      const flowPanel = insightPanel('Clientes novos por mês',
-        `Média de ${dec1.format(avgFresh)} por mês · novo = primeiro plano em 12 meses`);
-      flowPanel.append(hbars(flow.map((f) => ({ label: monthName(f), value: f.fresh, text: `${num.format(f.fresh)} novos · ${num.format(f.renewals)} renov.` }))));
-      panels.push(flowPanel);
+      panels.push(flowChart(flow, monthName));
     }
 
     const plans = groupBy(sales, (s) => s.plan, ['diaria', 'mensal', 'trimestral', 'semestral', 'anual']);
     const topPlan = [...plans].sort((a, b) => b.count - a.count)[0];
     const plansPanel = insightPanel('Planos', `${PLAN_LABEL[topPlan.key] || topPlan.key} é o mais vendido: ${pct(topPlan.count, sales.length)}% das vendas`);
-    plansPanel.append(hbars(plans.map((g) => ({ label: PLAN_LABEL[g.key] || g.key, value: g.count, text: `${pct(g.count, sales.length)}% · ${fmtMoney(g.total)}` }))));
+    plansPanel.append(...segmentedBar(plans.map((g) => ({
+      key: g.key, label: PLAN_LABEL[g.key] || g.key, color: CHART.plans[g.key] || CHART.gray, value: g.count,
+      detail: `${g.count === 1 ? '1 venda' : `${num.format(g.count)} vendas`} · ${fmtMoney(g.total)}`,
+    })), sales.length));
     panels.push(plansPanel);
 
-    const pays = groupBy(sales, (s) => s.payment_method, ['pix', 'credito', 'debito', 'dinheiro']);
+    const pays = groupBy(sales, (s) => s.payment_method, ['pix', 'credito', 'debito', 'dinheiro']).sort((a, b) => b.total - a.total);
     const topPay = [...pays].sort((a, b) => b.total - a.total)[0];
     const payPanel = insightPanel('Forma de pagamento', `${PAYMENT_LABEL[topPay.key] || topPay.key} traz ${pct(topPay.total, total12)}% da receita`);
     payPanel.append(hbars(pays.map((g) => ({ label: PAYMENT_LABEL[g.key] || g.key, value: g.total, text: `${pct(g.total, total12)}% · ${fmtMoney(g.total)}` }))));
     panels.push(payPanel);
 
-    const times = groupBy(sales, (s) => s.class_time).slice(0, 6);
-    const timesPanel = insightPanel('Horários mais procurados', `${times[0].key} é o horário com mais vendas`);
-    timesPanel.append(hbars(times.map((g) => ({ label: g.key, value: g.count, text: g.count === 1 ? '1 venda' : `${num.format(g.count)} vendas` }))));
-    panels.push(timesPanel);
+    panels.push(hoursChart(sales));
 
     const days = groupBy(sales.filter((s) => s.plan !== 'diaria'), (s) => s.days_per_week, ['2', '3', '4', '5']);
     const topDays = [...days].sort((a, b) => b.count - a.count)[0];
     const nPlans = days.reduce((n, g) => n + g.count, 0);
     if (nPlans) {
       const daysPanel = insightPanel('Dias por semana', `A maioria treina ${topDays.key}x por semana (${pct(topDays.count, nPlans)}%)`);
-      daysPanel.append(hbars(days.map((g) => ({ label: g.key.includes('+') ? g.key : `${g.key}x`, value: g.count, text: `${pct(g.count, nPlans)}%` }))));
+      daysPanel.append(daysTiles(days.filter((g) => g.count), nPlans, topDays.key));
       panels.push(daysPanel);
     }
 
     const weekdays = groupBy(sales, (s) => s.at.getDay(), [1, 2, 3, 4, 5, 6, 0]);
     const topWd = [...weekdays].sort((a, b) => b.count - a.count)[0];
     const wdPanel = insightPanel('Dias com mais vendas', `${WEEKDAYS[topWd.key]} é o dia que mais vende (${pct(topWd.count, sales.length)}%)`);
-    wdPanel.append(hbars(weekdays.map((g) => ({ label: WEEKDAYS[g.key].slice(0, 3), value: g.count, text: g.count === 1 ? '1 venda' : `${num.format(g.count)} vendas` }))));
+    wdPanel.append(weekdayBubbles(weekdays, topWd.key));
     panels.push(wdPanel);
 
     body.replaceChildren(...panels);
@@ -2498,6 +2953,14 @@
     s.src = src; s.onload = resolve; s.onerror = () => reject(new Error(`Falha ao carregar ${src}`));
     document.head.append(s);
   });
+  // Opening Histórico only downloads them (into the phone's cache, sw.js), without running them: running
+  // ~400 KB of JavaScript would stall an old phone while the list scrolls. "PDF" runs them from the cache.
+  let pdfPrefetched = false;
+  const prefetchPdfLibs = () => {
+    if (pdfPrefetched || pdfLibsPromise) return;
+    pdfPrefetched = true;
+    for (const src of PDF_LIBS) fetch(src).catch(() => { pdfPrefetched = false; });
+  };
   const loadPdfLibs = () => (pdfLibsPromise ??= PDF_LIBS.reduce((p, src) => p.then(() => loadScript(src)), Promise.resolve())
     .catch((err) => { pdfLibsPromise = null; throw err; }));
 
@@ -2761,12 +3224,27 @@
   });
 
   // ───────────────────────── Boot ─────────────────────────
+  // The session supabase-js keeps on the phone (localStorage), read directly: getSession() waits for a token
+  // refresh when the session is over an hour old, a round trip before anything could show.
+  function savedSessionUser() {
+    try {
+      const key = `sb-${new URL(CFG.supabaseUrl).hostname.split('.')[0]}-auth-token`;
+      const user = JSON.parse(localStorage.getItem(key))?.user;
+      return user?.id ? user : null;
+    } catch (_) { return null; }
+  }
+  const offlineError = (error) => !!error && (!navigator.onLine || error.name === 'AuthRetryableFetchError' || !error.status);
+
   (async function boot() {
     renderLoginUsers();
     updateNotes();
     if (!sb) return showLogin('Configure o Supabase em js/config.js.');
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) enterApp(session.user); else showLogin();
-    sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') showLogin(); });
+    sb.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT' && state.userId) showLogin(); });
+    const saved = savedSessionUser();
+    if (saved) enterApp(saved); // the screen and the saved clients now; supabase-js checks the session meanwhile
+    const { data: { session }, error } = await sb.auth.getSession();
+    if (session) enterApp(session.user); // same user: nothing to do
+    else if (saved && offlineError(error)) { /* no internet to refresh the session: keep the app open */ }
+    else showLogin();
   })();
 })();
