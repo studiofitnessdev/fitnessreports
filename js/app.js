@@ -2,14 +2,18 @@
   'use strict';
 
   const CFG = window.APP_CONFIG;
+  // Dates, plans, CPF, search and the renewal math live in js/core.js (pure functions, covered by tests/core.test.js)
+  const {
+    pad2, startOfDay, addDays, addMonths, toISODate, parseISODate, fmtDate, daysBetween, fmtSpan, fmtAgo,
+    PLAN_MONTHS, PLAN_LABEL, planEnd, autoNote, CPF_NONE, validCpf, searchKey,
+    INSIGHTS_MONTHS, RENEW_GRACE_DAYS, clientFlow, clientStats,
+  } = window.SFCore;
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
   // A Diária has no days per week: it's saved as '1' (the database requires a value) and never shown.
   const DIARIA_DAYS = '1';
   const daysLabel = (r) => (r.plan === 'diaria' ? '' : r.days_per_week === '4+' ? '4 ou mais' : r.days_per_week);
-  const PLAN_MONTHS = { diaria: 0, mensal: 1, trimestral: 3, semestral: 6, anual: 12 }; // diária: starts and ends on the sale day
-  const PLAN_LABEL = { diaria: 'Diária', mensal: 'Mensal', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
   const PAYMENT_LABEL = { pix: 'Pix', credito: 'Crédito', debito: 'Débito', dinheiro: 'Dinheiro' };
   const PAGE_SIZE = 1000; // Supabase returns at most 1000 rows per request
 
@@ -25,30 +29,13 @@
     subsAt: 0,
   };
 
-  // ───────────────────────── Date helpers (always local time) ─────────────────────────
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-  // Same day N months later; clamps to the month's last day (31/01 + 1 month → 28/02).
-  const addMonths = (d, n) => {
-    const last = new Date(d.getFullYear(), d.getMonth() + n + 1, 0).getDate();
-    return new Date(d.getFullYear(), d.getMonth() + n, Math.min(d.getDate(), last));
-  };
-  const toISODate = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  const parseISODate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
-  const fmtDate = (d) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+  // ───────────────────────── Date helpers (always local time; the rest are in js/core.js) ─────────────────────────
   const fmtDateTime = (d) => `${fmtDate(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   // [from, to) → "dd/MM/yyyy a dd/MM/yyyy" (or a single date)
   const fmtRange = ([from, to]) => {
     const last = addDays(to, -1);
     return from.getTime() === last.getTime() ? fmtDate(from) : `${fmtDate(from)} a ${fmtDate(last)}`;
   };
-
-  // The Observação text filled in for a sale ("Plano Mensal: 17/11/2026 a 17/12/2026"). Same text as
-  // sale_auto_note() in supabase/013_notes_diaria_subs.sql, which swaps it when a sale is edited.
-  const autoNote = (plan, start, end) => (plan === 'diaria'
-    ? `Diária: ${fmtDate(start)}`
-    : `Plano ${PLAN_LABEL[plan]}: ${fmtDate(start)} a ${fmtDate(end)}`);
 
   const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
   const fmtMoney = (n) => money.format(n);
@@ -61,7 +48,6 @@
     return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
   };
   const normName = (s) => s.trim().replace(/\s+/g, ' ').toUpperCase();
-  const CPF_NONE = '00000000000'; // stored for every client without CPF; shown as "Sem CPF"
   const showCpf = (cpf) => (cpf && cpf !== CPF_NONE ? fmtCpf(cpf) : ''); // '' = no CPF (null or CPF_NONE)
   const fmtPhone = (digits) => {
     const d = (digits || '').replace(/\D/g, '').slice(0, 11);
@@ -625,6 +611,19 @@
 
   const statusOf = (days) => (days == null ? 'none' : days < 0 ? 'expired' : days <= 7 ? 'soon' : 'active');
 
+  // What a client row shows (Clientes list and the client page): initials, CPF · WhatsApp, plan status
+  const initials = (name) => {
+    const parts = name.split(' ').filter(Boolean);
+    return (parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
+  };
+  const clientMetaParts = (c) => [showCpf(c.cpf) || 'Sem CPF', fmtPhone(c.phone), !showCpf(c.cpf) && isHomonym(c) && `cód. ${c.id}`].filter(Boolean);
+  const clientMeta = (c) => clientMetaParts(c).join(' · ');
+  function fillSubLine(line, c) {
+    const st = subStatus(c.id);
+    line.className = `sub sub-${st.cls}`;
+    line.replaceChildren(el('span', 'sub-tag', st.tag), ...(st.detail ? [el('span', 'sub-detail', st.detail)] : []));
+  }
+
   // WhatsApp link with a renewal message that fits the plan status
   function whatsappLink(c) {
     const sub = planSub(c.id);
@@ -679,19 +678,15 @@
       : (FILTER_EMPTY[f] || 'Nenhum cliente cadastrado.');
     renderList($('#clients-list'), items, (c) => {
       const li = el('li');
-      const parts = c.name.split(' ').filter(Boolean);
-      const initials = (parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '');
       const info = el('div');
       info.append(el('div', 'row-name', c.name));
-      info.append(el('div', 'row-meta', [showCpf(c.cpf) || 'Sem CPF', fmtPhone(c.phone), !showCpf(c.cpf) && isHomonym(c) && `cód. ${c.id}`].filter(Boolean).join(' · ')));
+      info.append(el('div', 'row-meta', clientMeta(c)));
       if (state.subs) {
-        const st = subStatus(c.id);
-        const line = el('div', `sub sub-${st.cls}`);
-        line.append(el('span', 'sub-tag', st.tag));
-        if (st.detail) line.append(el('span', 'sub-detail', st.detail));
+        const line = el('div');
+        fillSubLine(line, c);
         info.append(line);
       }
-      li.append(el('span', 'avatar', initials), info);
+      li.append(el('span', 'avatar', initials(c.name)), info);
       if (c.phone) {
         const wa = el('a', 'row-wa');
         wa.href = whatsappLink(c);
@@ -699,10 +694,10 @@
         wa.rel = 'noopener';
         wa.setAttribute('aria-label', `WhatsApp de ${c.name}`);
         wa.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-wa"/></svg>';
-        wa.addEventListener('click', (e) => e.stopPropagation()); // don't open the edit form
+        wa.addEventListener('click', (e) => e.stopPropagation()); // don't open the client page
         li.append(wa);
       }
-      li.addEventListener('click', () => openClientForm(c));
+      li.addEventListener('click', () => openClientPage(c));
       return li;
     }, el('li', 'muted', empty), { lazy: true });
   }
@@ -1153,16 +1148,6 @@
     const d = raw.replace(/\D/g, '');
     return /^\d{9,10}$/.test(raw) ? d.padStart(11, '0') : d;
   };
-  // Real CPFs end in two check digits; a phone or a code almost never does.
-  const validCpf = (d) => {
-    if (!/^\d{11}$/.test(d) || /^(\d)\1{10}$/.test(d)) return false;
-    const check = (len) => {
-      let sum = 0;
-      for (let i = 0; i < len; i++) sum += Number(d[i]) * (len + 1 - i);
-      return ((sum * 10) % 11) % 10;
-    };
-    return check(9) === Number(d[9]) && check(10) === Number(d[10]);
-  };
   // Phone digits of a cell ("(35) 99999-9999", "+55 35 99999 9999", "35999999999") or '' (also without DDD).
   const cellPhone = (raw) => {
     if (!/^[\d\s()+\-.]+$/.test(raw)) return '';
@@ -1510,7 +1495,7 @@
 
   function planDates() {
     const start = startOfDay(new Date());
-    const end = addMonths(start, PLAN_MONTHS[radioValue('plan')]);
+    const end = planEnd(radioValue('plan'), start);
     return { start, end };
   }
 
@@ -1552,19 +1537,8 @@
   let comboActive = -1;
   state.selectedClient = null;
 
-  const searchKey = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
-
-  function matchClients(q) {
-    const words = searchKey(q).split(/\s+/).filter(Boolean);
-    const digits = q.replace(/\D/g, '');
-    if (!words.length) return state.clients;
-    return state.clients.filter((c) => {
-      const name = c.key ?? searchKey(c.name);
-      return words.every((w) => name.includes(w))
-        || (digits.length >= 3 && c.cpf && c.cpf !== CPF_NONE && c.cpf.includes(digits)) // "000" mustn't list everyone without CPF
-        || (digits.length >= 4 && !!c.phone && c.phone.includes(digits));
-    });
-  }
+  // Every word of the name (any order, accents ignored), or digits of the CPF / WhatsApp (js/core.js)
+  function matchClients(q) { return window.SFCore.matchClients(state.clients, q); }
 
   function setComboActive(i) {
     comboActive = i;
@@ -2192,8 +2166,6 @@
   const MONTHS_LONG = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
   const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
   const INSIGHTS_FRESH_MS = 60 * 1000;
-  const INSIGHTS_MONTHS = 18;
-  const RENEW_GRACE_DAYS = 15; // a plan renewed up to 15 days after it ended still counts as renewed
   state.insights = null; // { at, rows }
   const pct = (part, total) => (total ? Math.round((part / total) * 100) : 0);
 
@@ -2377,7 +2349,7 @@
     const ul = el('ul', 'chart-legend');
     for (const it of items) {
       const li = el('li');
-      const sw = el('span', `swatch swatch-${shape}`);
+      const sw = el('span', `swatch swatch-${it.shape || shape}`);
       sw.style.background = it.color;
       li.append(sw, el('span', null, it.label));
       if (it.detail) li.append(el('span', 'legend-detail', it.detail));
@@ -2608,50 +2580,7 @@
     return row;
   }
 
-  // New clients and renewals, from plan sales only (a Diária is a visit, counted on its own).
-  // - A plan sale is a renewal when the same client had a plan that ended less than a year before it (or is
-  //   still running); otherwise the client is new (first plan, or back after a year or more without one).
-  //   Needs history before the month, so it is only given for the last 6 of the 18 months loaded.
-  // - Renewal rate of a month: of the plans that ended in it, how many were followed by another plan of the
-  //   same client up to RENEW_GRACE_DAYS after the end. Only months whose grace period is already over.
-  function clientFlow(all, now) {
-    const plans = all.filter((s) => s.plan !== 'diaria' && s.client_id != null).sort((a, b) => a.at - b.at || a.id - b.id);
-    const byClient = new Map();
-    for (const s of plans) {
-      if (!byClient.has(s.client_id)) byClient.set(s.client_id, []);
-      byClient.get(s.client_id).push(s);
-    }
-    const isRenewal = new Map(); // sale → bought a plan in the year before
-    const renewed = new Map(); // sale → followed by another plan in time
-    for (const list of byClient.values()) {
-      let lastEnd = null; // furthest plan end of the client's earlier sales
-      list.forEach((s, i) => {
-        isRenewal.set(s, !!lastEnd && s.at < addDays(lastEnd, 366));
-        const end = parseISODate(s.plan_end);
-        if (!lastEnd || end > lastEnd) lastEnd = end;
-        const next = list[i + 1];
-        const limit = addDays(parseISODate(s.plan_end), RENEW_GRACE_DAYS + 1); // through the 15th day
-        renewed.set(s, !!next && next.at < limit);
-      });
-    }
-    const monthOf = (k) => new Date(now.getFullYear(), now.getMonth() - k, 1); // k = 0 this month
-    const flow = [];
-    for (let k = 5; k >= 0; k--) {
-      const start = monthOf(k), end = monthOf(k - 1);
-      const inMonth = plans.filter((s) => s.at >= start && s.at < end);
-      const fresh = new Set(inMonth.filter((s) => !isRenewal.get(s)).map((s) => s.client_id));
-      flow.push({ y: start.getFullYear(), m: start.getMonth(), start, fresh: fresh.size, renewals: inMonth.filter((s) => isRenewal.get(s)).length, sales: inMonth });
-    }
-    const today = startOfDay(now);
-    const renewal = [];
-    for (let k = 1; k < INSIGHTS_MONTHS && renewal.length < 6; k++) {
-      const start = monthOf(k), end = monthOf(k - 1);
-      if (addDays(end, RENEW_GRACE_DAYS) > today) continue; // some plans of this month are still in their grace days
-      const ended = plans.filter((s) => { const e = parseISODate(s.plan_end); return e >= start && e < end; });
-      if (ended.length) renewal.unshift({ y: start.getFullYear(), m: start.getMonth(), total: ended.length, renewed: ended.filter((s) => renewed.get(s)).length });
-    }
-    return { flow, renewal, isRenewal };
-  }
+  // New clients, renewals and the renewal rate per month: clientFlow() in js/core.js
 
   // The charts are drawn for the panel's width: draw them again when it changes (phone turned sideways)
   let insightsWidth = 0, insightsResize = 0;
@@ -2781,6 +2710,218 @@
 
     body.replaceChildren(...panels);
   }
+
+  // ───────────────────────── Ficha do cliente (Clientes, both logins) ─────────────────────────
+  // Tapping a client opens their page: plan status, a few numbers about them (clientStats() in js/core.js),
+  // their last 12 months on one line, and every purchase. Anderson reads the sales table (values, receipt
+  // reprint); the Professor gets the same purchases without any values through client_history()
+  // (supabase/014_client_history.sql). Only sales made in this app exist (from #6518), hence "Primeira compra".
+  const cpModal = $('#client-page');
+  let cpClient = null;
+  let cpReq = 0; // bumped on every open and close: a late answer for another client is dropped
+  const CP_OWNER_COLS = 'id, created_at, client_id, client_name, amount, payment_method, class_time, plan, days_per_week, plan_start, plan_end, notes, signature';
+  const plural = (n, one, many) => `${num.format(n)} ${n === 1 ? one : many}`;
+  const salePeriod = (r) => (r.plan === 'diaria' ? fmtDate(parseISODate(r.plan_start))
+    : `${fmtDate(parseISODate(r.plan_start))} a ${fmtDate(parseISODate(r.plan_end))}`);
+
+  function openClientPage(c) {
+    cpClient = c;
+    const req = ++cpReq;
+    $('#cp-avatar').textContent = initials(c.name);
+    $('#cp-name').textContent = c.name;
+    // Each part on one line (a phone number never breaks at its hyphen)
+    $('#cp-meta').replaceChildren(...clientMetaParts(c).flatMap((t, i) => [...(i ? [' · '] : []), el('span', null, t)]));
+    const sub = $('#cp-sub');
+    sub.hidden = !state.subs;
+    if (state.subs) fillSubLine(sub, c);
+    const wa = $('#cp-wa');
+    wa.hidden = !c.phone;
+    if (c.phone) { wa.href = whatsappLink(c); wa.setAttribute('aria-label', `WhatsApp de ${c.name}`); }
+    $('#cp-status').textContent = 'Carregando compras…';
+    $('#cp-body').replaceChildren();
+    cpModal.showModal();
+    cpModal.querySelector('.panel').scrollTop = 0;
+    loadClientPage(c, req);
+  }
+
+  async function loadClientPage(c, req) {
+    let rows;
+    try {
+      rows = await fetchAll(() => (state.role === 'owner'
+        ? sb.from('sales').select(CP_OWNER_COLS).eq('client_id', c.id)
+        : sb.rpc('client_history', { p_client_id: c.id }))
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false }));
+    } catch (err) {
+      console.error(err);
+      if (req !== cpReq) return;
+      $('#cp-status').textContent = err.code === 'PGRST202'
+        ? 'Falta configurar: rode supabase/014_client_history.sql no Supabase.'
+        : 'Não foi possível carregar as compras. Verifique a internet e tente de novo.';
+      return;
+    }
+    if (req === cpReq) renderClientPage(c, rows);
+  }
+
+  function renderClientPage(c, rows) {
+    const isOwner = state.role === 'owner';
+    const now = new Date();
+    const body = $('#cp-body');
+    $('#cp-status').textContent = '';
+    if (!rows.length) {
+      body.replaceChildren(el('p', 'cp-empty', 'Nenhuma compra ainda. Toque em Nova venda para registrar a primeira.'));
+      return;
+    }
+    const st = clientStats(rows, now);
+    const tiles = el('div', 'kpis cp-kpis');
+    const note = (text) => el('span', 'kpi-delta', text);
+    tiles.append(
+      kpi('Primeira compra', fmtDate(st.first), note(fmtAgo(st.first, now))),
+      kpi('Compras', num.format(st.count),
+        note([st.plans && plural(st.plans, 'plano', 'planos'), st.diarias && plural(st.diarias, 'diária', 'diárias')].filter(Boolean).join(' · '))),
+    );
+    if (isOwner && st.total != null) tiles.append(kpi('Total pago', fmtMoney(st.total), note(`média de ${fmtMoney(st.avg)} por compra`)));
+    if (st.plans) {
+      const lastEnded = st.lastEnd < startOfDay(now);
+      tiles.append(
+        kpi('Renovou em dia', st.judged ? `${num.format(st.renewed)} de ${num.format(st.judged)}` : '—',
+          note(st.judged ? `até ${RENEW_GRACE_DAYS} dias após vencer` : 'nenhum plano vencido ainda')),
+        kpi('Tempo com plano', fmtSpan(st.coveredDays),
+          note(st.since ? `sem parar desde ${fmtDate(st.since)}` : `o último ${lastEnded ? 'venceu' : 'vence'} em ${fmtDate(st.lastEnd)}`)),
+      );
+    }
+    if (st.time) {
+      tiles.append(kpi('Costuma treinar', st.time, note(!st.days ? 'horário mais comum'
+        : st.days === '4+' ? '4 ou mais vezes por semana' : `${st.days}x por semana`)));
+    }
+    const width = Math.max(240, Math.round(body.clientWidth || 320)); // the chart is drawn at the page's real width
+    body.replaceChildren(tiles, clientTimeline(c, rows, now, width, isOwner),
+      el('div', 'cp-section', 'Histórico de compras'), clientSalesList(c, rows, isOwner));
+  }
+
+  // The last 12 months, day by day, on one lane: a bar per plan, a dot per Diária, the gaps left empty.
+  // Tap or drag (arrows with the keyboard) to pick a purchase; the most recent one starts picked.
+  function clientTimeline(c, rows, now, W, isOwner) {
+    const box = el('section', 'cp-timeline');
+    box.append(el('div', 'cp-section', 'Últimos 12 meses'));
+    const readout = readoutLine();
+    const today = startOfDay(now);
+    const from = new Date(today.getFullYear(), today.getMonth() - 11, 1);
+    const to = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const days = daysBetween(from, to);
+    const L = 2, R = 2, T = 20, LANE = 14, H = T + LANE + 28, mid = T + LANE / 2;
+    const x = (date) => L + (daysBetween(from, date) / days) * (W - L - R);
+    const dayW = (W - L - R) / days;
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': `Planos e diárias de ${c.name} nos últimos 12 meses` });
+    svgEl('rect', { x: L, y: T, width: W - L - R, height: LANE, rx: 4, fill: 'rgba(255, 255, 255, .06)' }, svg); // no plan
+    const band = svgEl('rect', { y: T - 5, height: LANE + 10, rx: 6, fill: 'rgba(255, 255, 255, .1)', visibility: 'hidden' }, svg); // the picked purchase
+    const monthW = (W - L - R) / 12;
+    for (let i = 0; i < 12; i++) {
+      const m0 = new Date(from.getFullYear(), from.getMonth() + i, 1);
+      const m1 = new Date(from.getFullYear(), from.getMonth() + i + 1, 1);
+      if (i) svgEl('line', { x1: x(m0), x2: x(m0), y1: T - 3, y2: T + LANE + 3, stroke: CHART.grid }, svg);
+      if (monthW >= 24 || i % 2 === 1) svgText(svg, (x(m0) + x(m1)) / 2, H - 8, MONTHS_SHORT[m0.getMonth()]);
+    }
+
+    const inView = rows.filter((r) => parseISODate(r.plan_end) >= from && parseISODate(r.plan_start) < to);
+    const bars = inView.filter((r) => r.plan !== 'diaria')
+      .sort((a, b) => a.plan_start.localeCompare(b.plan_start) || a.id - b.id)
+      .map((r) => {
+        const start = parseISODate(r.plan_start), end = addDays(parseISODate(r.plan_end), 1); // the end day included
+        return { r, x0: x(start < from ? from : start), x1: x(end > to ? to : end) };
+      });
+    // 2px of surface between a plan and the next (a renewal bought early overlaps the plan before it). A plan
+    // that ends inside a longer one doesn't cut it: it's drawn on top, with a 2px surface ring around it.
+    bars.forEach((b, i) => { const next = bars[i + 1]; if (next && next.x0 < b.x1 + 2 && next.x1 >= b.x1) b.x1 = Math.max(b.x0 + 3, next.x0 - 2); });
+    let reach = -Infinity; // the furthest any earlier bar goes
+    for (const b of bars) {
+      b.cx = (b.x0 + b.x1) / 2;
+      const inside = b.x1 <= reach;
+      svgEl('rect', { x: b.x0, y: T, width: Math.max(3, b.x1 - b.x0), height: LANE, rx: 4, fill: CHART.accent,
+        ...(inside ? { stroke: CHART.surface, 'stroke-width': 2 } : {}) }, svg);
+      reach = Math.max(reach, b.x1);
+    }
+    const tx = x(today) + dayW / 2;
+    svgEl('line', { x1: tx, x2: tx, y1: T - 6, y2: T + LANE + 6, stroke: CHART.text, 'stroke-width': 1.5, 'stroke-linecap': 'round' }, svg);
+    svgText(svg, tx, T - 10, 'hoje', { fill: CHART.text, 'font-size': 10, 'text-anchor': tx > W - 16 ? 'end' : 'middle' });
+    const dots = inView.filter((r) => r.plan === 'diaria').map((r) => {
+      const cx = x(parseISODate(r.plan_start)) + dayW / 2;
+      svgEl('circle', { cx, cy: mid, r: 5, fill: CHART.second, stroke: CHART.surface, 'stroke-width': 2 }, svg);
+      return { r, cx, x0: cx - 6, x1: cx + 6 };
+    });
+
+    const marks = [...bars, ...dots].sort((a, b) => a.cx - b.cx); // arrows step through them left to right
+    if (!marks.length) {
+      readout.textContent = 'Nenhuma compra nos últimos 12 meses.';
+      box.append(readout, svg);
+      return box;
+    }
+    svg.classList.add('chart-pick');
+    svg.setAttribute('aria-label', `Planos e diárias de ${c.name} nos últimos 12 meses. Setas mudam a compra.`);
+    const latest = marks.reduce((best, m, i) => (Date.parse(m.r.created_at) > Date.parse(marks[best].r.created_at) ? i : best), 0);
+    pickable(svg, marks.map((m) => m.cx), (i) => {
+      const { r, x0, x1 } = marks[i];
+      band.setAttribute('visibility', 'visible');
+      band.setAttribute('x', x0 - 4);
+      band.setAttribute('width', x1 - x0 + 8);
+      setReadout(readout, `${PLAN_LABEL[r.plan] || r.plan} · ${salePeriod(r)}`,
+        ` · #${r.id}${isOwner && r.amount != null ? ` · ${fmtMoney(Number(r.amount))}` : ''}`);
+    }, latest);
+    box.append(readout, svg);
+    if (bars.length && dots.length) {
+      box.append(legend([{ label: 'Plano', color: CHART.accent }, { label: 'Diária', color: CHART.second, shape: 'round' }]));
+    }
+    return box;
+  }
+
+  // Every purchase, newest first. Anderson: value, payment and the receipt (reprint).
+  function clientSalesList(c, rows, isOwner) {
+    const list = el('ul', 'list list-sales cp-sales');
+    for (const r of rows) {
+      const li = el('li');
+      const top = el('div', 'row');
+      top.append(el('span', 'row-title', `#${r.id} - ${fmtDateTime(new Date(r.created_at))}`));
+      const mid = el('div', 'row');
+      mid.append(el('span', 'row-name', PLAN_LABEL[r.plan] || r.plan));
+      if (isOwner) mid.append(el('span', 'row-amount', fmtMoney(Number(r.amount))));
+      const bottom = el('div', 'row row-bottom');
+      bottom.append(el('div', 'row-meta', [
+        isOwner && PAYMENT_LABEL[r.payment_method],
+        r.class_time,
+        daysLabel(r) && `${daysLabel(r)}x/sem`,
+        salePeriod(r),
+      ].filter(Boolean).join(' · ')));
+      if (isOwner) {
+        const print = el('button', 'row-print');
+        print.type = 'button';
+        print.setAttribute('aria-label', `Imprimir recibo #${r.id}`);
+        print.innerHTML = '<svg class="ico" aria-hidden="true"><use href="#i-print"/></svg>Recibo';
+        print.addEventListener('click', () => reprintReceipt({ ...r, clients: { cpf: c.cpf } }, print));
+        bottom.append(print);
+      }
+      li.append(top, mid, bottom);
+      list.append(li);
+    }
+    return list;
+  }
+
+  $('#cp-close').addEventListener('click', () => cpModal.close());
+  cpModal.addEventListener('click', (e) => { if (e.target === cpModal) cpModal.close(); }); // tap on backdrop
+  cpModal.addEventListener('close', () => { cpClient = null; cpReq++; });
+  // The client as the list has it now (it may have been edited since the page opened)
+  const cpCurrent = () => cpClient && (state.clients.find((x) => x.id === cpClient.id) || cpClient);
+  $('#cp-edit').addEventListener('click', () => {
+    const c = cpCurrent();
+    cpModal.close(); // the client form is under the dialog: it can't be used while the dialog is open
+    if (c) openClientForm(c);
+  });
+  $('#cp-sale').addEventListener('click', () => {
+    const c = cpCurrent();
+    cpModal.close();
+    if (!c) return;
+    showView('sale');
+    selectClient(c); // only the client: plan, value and the rest stay as they are on the form
+  });
 
   // ───────────────────────── Export (CSV / PDF) ─────────────────────────
   const GYM = {

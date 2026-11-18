@@ -1,0 +1,8 @@
+{
+  "name": "studio-fitness",
+  "private": true,
+  "description": "Studio Fitness sales app (plain HTML/CSS/JS). No build and no dependencies; npm is only used to run the tests.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

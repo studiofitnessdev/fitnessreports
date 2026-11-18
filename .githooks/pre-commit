@@ -1,6 +1,11 @@
 #!/bin/sh
-# Stamps css/js versions and the service worker cache name (scripts/bump-version.sh) on every commit,
-# so phones never keep old files. Enabled once per clone with: git config core.hooksPath .githooks
+# 1. Runs the tests (tests/*.test.js) when Node 20+ is installed: a failing test stops the commit.
+# 2. Stamps css/js versions and the service worker cache name (scripts/bump-version.sh) on every commit,
+#    so phones never keep old files.
+# Enabled once per clone with: git config core.hooksPath .githooks
 cd "$(git rev-parse --show-toplevel)" || exit 1
+if command -v node >/dev/null 2>&1 && node -e 'process.exit(+process.versions.node.split(".")[0] >= 20 ? 0 : 1)'; then
+  node --test >/dev/null 2>&1 || { echo "pre-commit: tests failed. Run 'npm test' to see which." >&2; exit 1; }
+fi
 sh scripts/bump-version.sh >/dev/null || { echo "pre-commit: bump-version.sh failed" >&2; exit 1; }
 git add index.html sw.js

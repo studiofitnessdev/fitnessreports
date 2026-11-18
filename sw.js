@@ -7,7 +7,7 @@
 // - Supabase (data, login) and anything that isn't a GET: never touched, always straight to the network.
 // VERSION is stamped by scripts/bump-version.sh; a new value drops the old cache.
 // Kill switch: replace this whole file with the one in the README ("Service worker") and deploy.
-const VERSION = 'sf-914f12b6';
+const VERSION = 'sf-3963f660';
 
 const CACHEABLE_HOSTS = ['cdn.jsdelivr.net'];
 const PAGE = 'index'; // cache key of the page

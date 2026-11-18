@@ -12,7 +12,7 @@
   <!-- Open the connections early: JS library CDN and the Supabase API (same URL as js/config.js) -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net"> <!-- no crossorigin: the <script> request isn't CORS, so it can reuse this connection -->
   <link rel="preconnect" href="https://riypfhmzbjvmqfaczysp.supabase.co" crossorigin>
-  <link rel="stylesheet" href="css/style.css?v=dcddf742">
+  <link rel="stylesheet" href="css/style.css?v=f06cbe40">
 </head>
 <body>
 
@@ -508,6 +508,29 @@
     </div>
   </dialog>
 
+  <!-- Ficha do cliente (Clientes → tap a client): status, numbers about the client and every purchase.
+       Values only for Anderson; the Professor's comes from client_history() (supabase/014_client_history.sql). -->
+  <dialog class="modal modal-tall client-page" id="client-page" aria-labelledby="cp-name">
+    <div class="panel">
+      <div class="cp-head">
+        <span class="avatar" id="cp-avatar" aria-hidden="true"></span>
+        <div class="cp-id">
+          <h2 class="row-name" id="cp-name"></h2>
+          <div class="row-meta" id="cp-meta"></div>
+          <div class="sub" id="cp-sub" hidden></div>
+        </div>
+        <button type="button" class="cp-close" id="cp-close" aria-label="Fechar"><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="cp-actions">
+        <button type="button" class="btn btn-hero" id="cp-sale"><svg class="ico" aria-hidden="true"><use href="#i-sale"/></svg> Nova venda</button>
+        <button type="button" class="btn btn-ghost" id="cp-edit"><svg class="ico" aria-hidden="true"><use href="#i-pen"/></svg> Editar</button>
+        <a class="row-wa" id="cp-wa" target="_blank" rel="noopener" hidden><svg class="ico" aria-hidden="true"><use href="#i-wa"/></svg></a>
+      </div>
+      <p class="status cp-status" id="cp-status"></p>
+      <div id="cp-body"></div>
+    </div>
+  </dialog>
+
   <!-- Editar venda (Histórico): same receipt number, fixes instead of deleting -->
   <dialog class="modal modal-tall" id="edit-modal" aria-labelledby="edit-modal-title">
     <form id="edit-form" class="panel" novalidate>
@@ -567,7 +590,8 @@
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
   <script defer src="js/printer.js?v=b81edba2"></script>
   <script defer src="js/receipt.js?v=f68f118c"></script>
+  <script defer src="js/core.js?v=1fd54db6"></script>
   <script defer src="js/config.js?v=26cfc1d5"></script>
-  <script defer src="js/app.js?v=e93c4de9"></script>
+  <script defer src="js/app.js?v=fbdc7fa9"></script>
 </body>
 </html>
